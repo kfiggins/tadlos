@@ -22,6 +22,7 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 
 Assert="*res://scripts/Assert.gd"
 Debug="*res://scripts/Debug.gd"
+NetManager="*res://scripts/net/NetManager.gd"
 
 [display]
 

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://tnc1a2b3c4d5"]
+
+[ext_resource type="Script" path="res://tests/test_net_constants.gd" id="1_test"]
+
+[node name="TestNetConstants" type="Node"]
+script = ExtResource("1_test")

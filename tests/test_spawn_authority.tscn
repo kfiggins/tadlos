@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://tsa1a2b3c4d5"]
+
+[ext_resource type="Script" path="res://tests/test_spawn_authority.gd" id="1_test"]
+
+[node name="TestSpawnAuthority" type="Node"]
+script = ExtResource("1_test")

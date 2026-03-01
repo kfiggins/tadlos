@@ -2,12 +2,18 @@ extends Node
 
 ## Loads and runs all registered test scenes, printing results.
 ## Each test scene must have a root node with a `run_tests()` method.
+## Supports both sync and async (coroutine) test methods.
 
 var _test_scenes: Array[String] = [
 	"res://tests/test_asserts.tscn",
 	"res://tests/test_scene_loads.tscn",
 	"res://tests/test_movement_basic.tscn",
 	"res://tests/test_jetpack_fuel.tscn",
+	"res://tests/test_net_constants.tscn",
+	"res://tests/test_host_join.tscn",
+	"res://tests/test_spawn_authority.tscn",
+	"res://tests/test_disconnect_cleanup.tscn",
+	"res://tests/test_late_join.tscn",
 ]
 
 var _total_passed: int = 0
@@ -16,7 +22,7 @@ var _total_failed: int = 0
 
 func _ready() -> void:
 	print("=== TestRunner START ===")
-	_run_all_tests()
+	await _run_all_tests()
 	print("=== TestRunner END ===")
 	print("Total PASSED: %d" % _total_passed)
 	print("Total FAILED: %d" % _total_failed)
@@ -44,9 +50,9 @@ func _run_all_tests() -> void:
 		# Reset Assert counters before each test scene
 		Assert.reset()
 
-		# Call run_tests() on the test scene root
+		# Call run_tests() on the test scene root (supports sync and async)
 		if test_instance.has_method("run_tests"):
-			test_instance.run_tests()
+			await test_instance.run_tests()
 		else:
 			print("[FAIL] Test scene missing run_tests(): %s" % scene_path)
 			_total_failed += 1
@@ -56,3 +62,5 @@ func _run_all_tests() -> void:
 
 		# Clean up
 		test_instance.queue_free()
+		# Allow queue_free to process before next test
+		await get_tree().process_frame

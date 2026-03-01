@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://tdc1a2b3c4d5"]
+
+[ext_resource type="Script" path="res://tests/test_disconnect_cleanup.gd" id="1_test"]
+
+[node name="TestDisconnectCleanup" type="Node"]
+script = ExtResource("1_test")

@@ -34,21 +34,25 @@ func _physics_process(delta: float) -> void:
 
 ## Reads current input actions and mouse aim. Separated from simulation.
 func sample_input() -> Dictionary:
+	var input := sample_input_at(global_position, get_global_mouse_position())
+	aim_angle = input.aim_angle
+	return input
+
+
+## Static input sampler usable by both local and networked player controllers.
+static func sample_input_at(player_pos: Vector2, mouse_pos: Vector2) -> Dictionary:
 	var move_dir := 0.0
 	if Input.is_action_pressed("move_right"):
 		move_dir += 1.0
 	if Input.is_action_pressed("move_left"):
 		move_dir -= 1.0
 
-	var mouse_pos := get_global_mouse_position()
-	aim_angle = global_position.angle_to_point(mouse_pos)
-
 	return {
 		"move_dir": move_dir,
 		"jump": Input.is_action_just_pressed("jump"),
 		"jetpack": Input.is_action_pressed("jetpack"),
 		"dive": Input.is_action_just_pressed("dive"),
-		"aim_angle": aim_angle,
+		"aim_angle": player_pos.angle_to_point(mouse_pos),
 	}
 
 

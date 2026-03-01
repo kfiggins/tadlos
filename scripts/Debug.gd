@@ -54,9 +54,18 @@ func _update_overlay_text() -> void:
 	var grounded: bool = _overlay_data.get("grounded", false)
 	var fuel: float = _overlay_data.get("fuel", 0.0)
 
-	_overlay_label.text = "Vel: (%.1f, %.1f)\nGrounded: %s\nFuel: %.1f" % [
+	var text := "Vel: (%.1f, %.1f)\nGrounded: %s\nFuel: %.1f" % [
 		vel.x, vel.y, str(grounded), fuel
 	]
+
+	# Net info (Phase 2+)
+	if multiplayer.has_multiplayer_peer():
+		text += "\n---"
+		text += "\nHost: %s" % str(NetManager.is_host)
+		text += "\nPeer ID: %d" % NetManager.local_peer_id
+		text += "\nPlayers: %d" % (NetManager.connected_peers.size() + 1)
+
+	_overlay_label.text = text
 
 
 func set_overlay_data(data: Dictionary) -> void:
