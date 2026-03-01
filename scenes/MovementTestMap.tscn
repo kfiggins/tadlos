@@ -5,6 +5,15 @@
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_floor"]
 size = Vector2(2000, 32)
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_plat1"]
+size = Vector2(200, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_plat2"]
+size = Vector2(240, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall"]
+size = Vector2(32, 400)
+
 [node name="MovementTestMap" type="Node2D"]
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
@@ -27,7 +36,7 @@ color = Color(0.4, 0.4, 0.4, 1)
 position = Vector2(200, 200)
 
 [node name="PlatShape" type="CollisionShape2D" parent="Platform1"]
-shape = SubResource("RectangleShape2D_floor")
+shape = SubResource("RectangleShape2D_plat1")
 
 [node name="PlatVisual" type="ColorRect" parent="Platform1"]
 offset_left = -100.0
@@ -40,7 +49,7 @@ color = Color(0.5, 0.35, 0.2, 1)
 position = Vector2(700, 120)
 
 [node name="PlatShape" type="CollisionShape2D" parent="Platform2"]
-shape = SubResource("RectangleShape2D_floor")
+shape = SubResource("RectangleShape2D_plat2")
 
 [node name="PlatVisual" type="ColorRect" parent="Platform2"]
 offset_left = -120.0
@@ -53,8 +62,7 @@ color = Color(0.5, 0.35, 0.2, 1)
 position = Vector2(-400, 160)
 
 [node name="WallShape" type="CollisionShape2D" parent="WallLeft"]
-shape = SubResource("RectangleShape2D_floor")
-rotation = 1.5708
+shape = SubResource("RectangleShape2D_wall")
 
 [node name="WallVisual" type="ColorRect" parent="WallLeft"]
 offset_left = -16.0
@@ -67,8 +75,7 @@ color = Color(0.3, 0.3, 0.3, 1)
 position = Vector2(1600, 160)
 
 [node name="WallShape" type="CollisionShape2D" parent="WallRight"]
-shape = SubResource("RectangleShape2D_floor")
-rotation = 1.5708
+shape = SubResource("RectangleShape2D_wall")
 
 [node name="WallVisual" type="ColorRect" parent="WallRight"]
 offset_left = -16.0

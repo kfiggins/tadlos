@@ -9,6 +9,10 @@ var aim_angle: float = 0.0
 var _facing_right: bool = true
 
 
+func _ready() -> void:
+	_create_placeholder_sprite()
+
+
 func _physics_process(delta: float) -> void:
 	var input := sample_input()
 	var state := _build_state()
@@ -129,3 +133,22 @@ func _update_facing(angle: float) -> void:
 	if should_face_right != _facing_right:
 		_facing_right = should_face_right
 		$Sprite2D.flip_h = not _facing_right
+
+
+func _create_placeholder_sprite() -> void:
+	var img := Image.create(24, 48, false, Image.FORMAT_RGBA8)
+	# Head (skin tone)
+	for y in range(0, 12):
+		for x in range(6, 18):
+			img.set_pixel(x, y, Color(0.9, 0.75, 0.6))
+	# Body (blue)
+	for y in range(12, 32):
+		for x in range(4, 20):
+			img.set_pixel(x, y, Color(0.2, 0.4, 0.8))
+	# Legs (dark blue)
+	for y in range(32, 48):
+		for x in range(5, 11):
+			img.set_pixel(x, y, Color(0.15, 0.25, 0.5))
+		for x in range(13, 19):
+			img.set_pixel(x, y, Color(0.15, 0.25, 0.5))
+	$Sprite2D.texture = ImageTexture.create_from_image(img)
