@@ -18,6 +18,16 @@ var _enabled_categories: Dictionary = {}
 # Overlay data (set by PlayerController each frame)
 var _overlay_data: Dictionary = {}
 
+# Performance counters
+var _bullets_alive: int = 0
+var _tick_time_ms: float = 0.0
+var _rpc_sent_count: int = 0
+var _rpc_received_count: int = 0
+var _rpc_sent_per_sec: int = 0
+var _rpc_received_per_sec: int = 0
+var _rpc_timer: float = 0.0
+const RPC_COUNT_INTERVAL := 1.0
+
 
 func _ready() -> void:
 	_create_overlay()
@@ -29,7 +39,16 @@ func _input(event: InputEvent) -> void:
 		_overlay_label.visible = _overlay_visible
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	# RPC counter snapshot each second
+	_rpc_timer += delta
+	if _rpc_timer >= RPC_COUNT_INTERVAL:
+		_rpc_sent_per_sec = _rpc_sent_count
+		_rpc_received_per_sec = _rpc_received_count
+		_rpc_sent_count = 0
+		_rpc_received_count = 0
+		_rpc_timer -= RPC_COUNT_INTERVAL
+
 	if _overlay_visible and _overlay_label != null:
 		_update_overlay_text()
 
@@ -65,11 +84,42 @@ func _update_overlay_text() -> void:
 		text += "\nPeer ID: %d" % NetManager.local_peer_id
 		text += "\nPlayers: %d" % (NetManager.connected_peers.size() + 1)
 
+	# Performance counters (Phase 6)
+	text += "\n--- Perf ---"
+	text += "\nBullets: %d" % _bullets_alive
+	text += "\nRPC out/s: %d" % _rpc_sent_per_sec
+	text += "\nRPC in/s: %d" % _rpc_received_per_sec
+	text += "\nTick: %.1f ms" % _tick_time_ms
+	text += "\nMem: %.1f MB" % (OS.get_static_memory_usage() / 1048576.0)
+
+	# Lag simulator info
+	if NetManager.lag_sim.is_active():
+		text += "\n--- Lag Sim ---"
+		text += "\nLatency: %.0f ms" % NetManager.lag_sim.latency_ms
+		text += "\nJitter: %.0f ms" % NetManager.lag_sim.jitter_ms
+		text += "\nPkt Loss: %.0f%%" % (NetManager.lag_sim.packet_loss * 100.0)
+
 	_overlay_label.text = text
 
 
 func set_overlay_data(data: Dictionary) -> void:
 	_overlay_data = data
+
+
+func record_rpc_sent() -> void:
+	_rpc_sent_count += 1
+
+
+func record_rpc_received() -> void:
+	_rpc_received_count += 1
+
+
+func set_bullets_alive(count: int) -> void:
+	_bullets_alive = count
+
+
+func set_tick_time_ms(ms: float) -> void:
+	_tick_time_ms = ms
 
 
 func enable_category(category: String) -> void:

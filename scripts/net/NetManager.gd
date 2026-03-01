@@ -12,6 +12,7 @@ signal server_disconnected()
 var is_host: bool = false
 var local_peer_id: int = 0
 var connected_peers: Array[int] = []
+var lag_sim: LagSimulator = LagSimulator.new()
 
 
 func host(port: int = NetConstants.DEFAULT_PORT) -> Error:

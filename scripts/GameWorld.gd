@@ -17,6 +17,10 @@ func _exit_tree() -> void:
 		NetManager.server_disconnected.disconnect(_on_server_disconnected)
 
 
+func _process(_delta: float) -> void:
+	Debug.set_bullets_alive($Bullets.get_child_count())
+
+
 func _on_server_disconnected() -> void:
 	Debug.log("net", "Server disconnected, returning to menu")
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")

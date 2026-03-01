@@ -9,6 +9,7 @@ var owner_peer_id: int = 0
 var damage: int = 25
 var gravity: float = 50.0
 var max_lifetime: float = 3.0
+var spawn_position: Vector2 = Vector2.ZERO
 
 var _time_alive: float = 0.0
 var _tick_accumulator: float = 0.0
@@ -57,6 +58,13 @@ func _simulate_tick(tick_delta: float) -> void:
 	var motion := speed_vec * tick_delta
 	var collision := move_and_collide(motion)
 	queue_redraw()
+
+	# Distance cap
+	if position.distance_to(spawn_position) > NetConstants.BULLET_MAX_DISTANCE:
+		_dead = true
+		queue_free()
+		return
+
 	if collision == null:
 		return
 

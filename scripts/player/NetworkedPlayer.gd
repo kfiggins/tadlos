@@ -25,6 +25,9 @@ var _last_input: Dictionary = {
 var _server_tick: int = 0
 var _last_processed_seq: int = 0
 var _tick_accumulator: float = 0.0
+var _last_broadcast_snapshot: Dictionary = {}
+var _ticks_since_last_broadcast: int = 0
+const HEARTBEAT_INTERVAL: int = 15  # Force broadcast every 0.5s even if unchanged
 
 # Buffer edge-triggered inputs so they survive between tick boundaries
 var _jump_buffered: bool = false
@@ -50,6 +53,11 @@ var _bullet_scene: PackedScene = preload("res://scenes/Bullet.tscn")
 # HUD (local player only)
 var _hud: CanvasLayer = null
 var _hud_scene: PackedScene = preload("res://scenes/HUD.tscn")
+
+# Bot support (for soak testing)
+var is_bot: bool = false
+var _bot_input: Dictionary = {}
+var _bot_wants_fire: bool = false
 
 # Anti-cheat: max distance from server position for fire origin validation
 const FIRE_ORIGIN_TOLERANCE := 60.0
@@ -92,9 +100,13 @@ func _physics_process(delta: float) -> void:
 		_client_remote_process(delta)
 
 
+func set_bot_input(input: Dictionary) -> void:
+	_bot_input = input
+
+
 func _server_process(delta: float) -> void:
 	# Scoreboard toggle (host player, works even when dead)
-	if is_multiplayer_authority():
+	if is_multiplayer_authority() and not is_bot:
 		if Input.is_action_just_pressed("scoreboard") and _hud != null:
 			var game_mode := get_node_or_null("../../GameModeDeathmatch")
 			if game_mode:
@@ -114,8 +126,12 @@ func _server_process(delta: float) -> void:
 
 	_weapon.process_cooldown(delta)
 
+	# Bot input
+	if is_bot:
+		_last_input = _bot_input
+		aim_angle = _bot_input.get("aim_angle", 0.0)
 	# Host's own player: buffer edge-triggered inputs + sample
-	if is_multiplayer_authority():
+	elif is_multiplayer_authority():
 		if Input.is_action_just_pressed("jump"):
 			_jump_buffered = true
 		if Input.is_action_just_pressed("dive"):
@@ -135,19 +151,24 @@ func _server_process(delta: float) -> void:
 		_server_tick += 1
 		_broadcast_state()
 		# Clear buffers after the first tick consumes them
-		if is_multiplayer_authority():
+		if is_multiplayer_authority() and not is_bot:
 			_jump_buffered = false
 			_dive_buffered = false
 
-	# Host fire handling (after tick sim so position is current)
-	if is_multiplayer_authority() and health.is_alive():
-		if Input.is_action_pressed("fire") and _weapon.can_fire():
-			_weapon.fire()
-			var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
-			_spawn_bullet(origin, WeaponRifle.get_aim_direction(aim_angle))
+	# Fire handling (host player or bot)
+	var should_fire := false
+	if is_bot:
+		should_fire = _bot_wants_fire
+		_bot_wants_fire = false
+	elif is_multiplayer_authority():
+		should_fire = Input.is_action_pressed("fire")
+	if should_fire and health.is_alive() and _weapon.can_fire():
+		_weapon.fire()
+		var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
+		_spawn_bullet(origin, WeaponRifle.get_aim_direction(aim_angle))
 
-	# Push debug data and HUD for host's own player
-	if is_multiplayer_authority():
+	# Push debug data and HUD for host's own player (not bots)
+	if is_multiplayer_authority() and not is_bot:
 		Debug.set_overlay_data({
 			"velocity": velocity,
 			"grounded": is_on_floor(),
@@ -232,6 +253,7 @@ func _client_local_process(delta: float) -> void:
 		var payload := input.duplicate()
 		payload["seq"] = _input_seq
 		_send_input.rpc_id(1, payload)
+		Debug.record_rpc_sent()
 
 	# Client fire handling (predicted — server validates)
 	if _display_hp > 0:
@@ -324,10 +346,27 @@ func _spawn_bullet(origin: Vector2, direction: Vector2) -> void:
 	if bullets_node == null:
 		return
 
+	var peer_id := int(str(name))
+
+	# Enforce total bullet cap
+	while bullets_node.get_child_count() >= NetConstants.MAX_BULLETS_TOTAL:
+		var oldest := bullets_node.get_child(0)
+		if oldest:
+			oldest.queue_free()
+			bullets_node.remove_child(oldest)
+		else:
+			break
+
+	# Enforce per-player bullet cap
+	while _get_player_bullet_count(bullets_node, peer_id) >= NetConstants.MAX_BULLETS_PER_PLAYER:
+		if not _remove_oldest_player_bullet(bullets_node, peer_id):
+			break
+
 	var bullet := _bullet_scene.instantiate()
 	bullet.position = origin
+	bullet.spawn_position = origin
 	bullet.speed_vec = direction.normalized() * _weapon.config.bullet_speed
-	bullet.owner_peer_id = int(str(name))
+	bullet.owner_peer_id = peer_id
 	bullet.damage = _weapon.config.damage
 	bullet.gravity = _weapon.config.bullet_gravity
 	bullet.hit_player.connect(_on_bullet_hit_player)
@@ -343,6 +382,23 @@ func _spawn_bullet(origin: Vector2, direction: Vector2) -> void:
 		"dir_x": direction.x,
 		"dir_y": direction.y,
 	})
+
+
+func _get_player_bullet_count(bullets_node: Node, peer_id: int) -> int:
+	var count := 0
+	for bullet in bullets_node.get_children():
+		if bullet is CharacterBody2D and bullet.owner_peer_id == peer_id:
+			count += 1
+	return count
+
+
+func _remove_oldest_player_bullet(bullets_node: Node, peer_id: int) -> bool:
+	for bullet in bullets_node.get_children():
+		if bullet is CharacterBody2D and bullet.owner_peer_id == peer_id:
+			bullet.queue_free()
+			bullets_node.remove_child(bullet)
+			return true
+	return false
 
 
 ## Spawn a visual-only bullet on the client. No hit signals connected.
@@ -522,6 +578,7 @@ func _receive_health_update(new_hp: int) -> void:
 func _send_input(input_data: Dictionary) -> void:
 	if not multiplayer.is_server():
 		return
+	Debug.record_rpc_received()
 
 	# Validate sender matches this player's authority
 	var sender := multiplayer.get_remote_sender_id()
@@ -563,7 +620,38 @@ func _broadcast_state() -> void:
 		"hp": health.current_hp,
 		"is_dead": _is_dead,
 	}
+
+	_ticks_since_last_broadcast += 1
+	if _snapshot_unchanged(snapshot) and _ticks_since_last_broadcast < HEARTBEAT_INTERVAL:
+		return
+
+	_ticks_since_last_broadcast = 0
+	_last_broadcast_snapshot = snapshot
 	_receive_state.rpc(snapshot)
+	Debug.record_rpc_sent()
+
+
+func _snapshot_unchanged(snapshot: Dictionary) -> bool:
+	if _last_broadcast_snapshot.is_empty():
+		return false
+	# Always send on state transitions
+	if snapshot.get("is_dead") != _last_broadcast_snapshot.get("is_dead"):
+		return false
+	if snapshot.get("hp") != _last_broadcast_snapshot.get("hp"):
+		return false
+	if snapshot.get("grounded") != _last_broadcast_snapshot.get("grounded"):
+		return false
+	# Position/velocity epsilon check
+	const EPSILON := 0.1
+	if absf(snapshot.get("position_x", 0.0) - _last_broadcast_snapshot.get("position_x", 0.0)) > EPSILON:
+		return false
+	if absf(snapshot.get("position_y", 0.0) - _last_broadcast_snapshot.get("position_y", 0.0)) > EPSILON:
+		return false
+	if absf(snapshot.get("velocity_x", 0.0) - _last_broadcast_snapshot.get("velocity_x", 0.0)) > EPSILON:
+		return false
+	if absf(snapshot.get("velocity_y", 0.0) - _last_broadcast_snapshot.get("velocity_y", 0.0)) > EPSILON:
+		return false
+	return true
 
 
 ## Server → Clients: broadcast authoritative state.
@@ -571,6 +659,7 @@ func _broadcast_state() -> void:
 func _receive_state(state: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
+	Debug.record_rpc_received()
 
 	# Only accept state from server (peer 1)
 	var sender := multiplayer.get_remote_sender_id()

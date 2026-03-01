@@ -32,6 +32,12 @@ func _exit_tree() -> void:
 
 func _on_peer_disconnected(peer_id: int) -> void:
 	if multiplayer.is_server():
+		# Clean up disconnected player's bullets
+		var bullets_node := get_node_or_null("../Bullets")
+		if bullets_node:
+			for bullet in bullets_node.get_children():
+				if bullet is CharacterBody2D and bullet.owner_peer_id == peer_id:
+					bullet.queue_free()
 		var game_mode := get_node_or_null("../GameModeDeathmatch")
 		if game_mode:
 			game_mode.unregister_player(peer_id)

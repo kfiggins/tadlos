@@ -32,7 +32,7 @@ Each phase has a detailed spec in `docs/phases/phase-N.md`. Read the relevant ph
 | 3 | Client-side prediction + reconciliation | DONE |
 | 4 | Projectile weapons MVP (server-authoritative) | DONE |
 | 5 | Respawn loop + scoring + game rules | DONE |
-| 6 | 8-player stability pass + net debug tools | NOT STARTED |
+| 6 | 8-player stability pass + net debug tools | DONE |
 
 **Update this table as phases are completed.** Mark as `IN PROGRESS` when starting, `DONE` when the phase-complete loop passes.
 
