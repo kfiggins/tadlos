@@ -7,6 +7,7 @@ extends CharacterBody2D
 var fuel: float = MovementTuning.JETPACK_MAX_FUEL
 var aim_angle: float = 0.0
 var _facing_right: bool = true
+var _tick_accumulator: float = 0.0
 
 
 func _ready() -> void:
@@ -14,19 +15,20 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var input := sample_input()
-	var state := _build_state()
-	var result := calculate_velocity(state, input, delta)
+	# Use same fixed tick rate as NetworkedPlayer for consistent movement
+	var tick_delta := 1.0 / NetConstants.TICK_RATE
+	_tick_accumulator += delta
+	while _tick_accumulator >= tick_delta:
+		_tick_accumulator -= tick_delta
 
-	# Apply the computed velocity
-	velocity = result.velocity
-	fuel = result.fuel
+		var input := sample_input()
+		var state := _build_state()
+		var result := calculate_velocity(state, input, tick_delta)
 
-	# Collision resolution via Godot
-	move_and_slide()
-
-	# Update facing direction based on aim
-	_update_facing(input.aim_angle)
+		velocity = result.velocity
+		fuel = result.fuel
+		move_and_slide()
+		_update_facing(input.aim_angle)
 
 	# Push data to debug overlay
 	Debug.set_overlay_data({
