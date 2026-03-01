@@ -6,6 +6,8 @@ extends Node
 var _test_scenes: Array[String] = [
 	"res://tests/test_asserts.tscn",
 	"res://tests/test_scene_loads.tscn",
+	"res://tests/test_movement_basic.tscn",
+	"res://tests/test_jetpack_fuel.tscn",
 ]
 
 var _total_passed: int = 0
