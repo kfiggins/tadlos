@@ -12,6 +12,9 @@ func run_tests() -> void:
 	_test_empty_ammo_blocks_fire()
 	_test_fire_count_matches_expected()
 	_test_config_values_apply()
+	_test_auto_reload_starts_on_empty()
+	_test_reload_blocks_fire()
+	_test_reload_completes_and_refills()
 	_test_health_take_damage()
 	_test_health_death_at_zero()
 	_test_health_no_damage_when_dead()
@@ -85,6 +88,49 @@ func _test_config_values_apply() -> void:
 	Assert.assert_eq(weapon.config.damage, 50, "Custom damage applied")
 	Assert.assert_eq(weapon.config.fire_rate, 0.5, "Custom fire_rate applied")
 	Assert.assert_eq(weapon.config.bullet_speed, 800.0, "Custom bullet_speed applied")
+
+
+# --- Reload tests ---
+
+func _test_auto_reload_starts_on_empty() -> void:
+	var config := WeaponConfig.new()
+	config.max_ammo = 1
+	var weapon := WeaponRifle.new(config)
+	weapon.fire()
+	Assert.assert_eq(weapon.current_ammo, 0, "Ammo is 0 after firing last round")
+	Assert.assert_true(weapon.reloading, "Auto-reload started when magazine emptied")
+
+
+func _test_reload_blocks_fire() -> void:
+	var config := WeaponConfig.new()
+	config.max_ammo = 1
+	config.reload_time = 2.0
+	var weapon := WeaponRifle.new(config)
+	weapon.fire()
+	weapon.process_cooldown(0.16)  # Clear fire cooldown
+	Assert.assert_false(weapon.can_fire(), "Cannot fire while reloading")
+	Assert.assert_false(weapon.fire(), "Fire returns false while reloading")
+
+
+func _test_reload_completes_and_refills() -> void:
+	var config := WeaponConfig.new()
+	config.max_ammo = 30
+	config.reload_time = 2.0
+	var weapon := WeaponRifle.new(config)
+	# Empty the magazine
+	for i in range(30):
+		weapon.process_cooldown(0.16)
+		weapon.fire()
+	Assert.assert_true(weapon.reloading, "Reloading after emptying magazine")
+	Assert.assert_eq(weapon.current_ammo, 0, "Ammo is 0 during reload")
+	# Partially advance reload
+	weapon.process_cooldown(1.0)
+	Assert.assert_true(weapon.reloading, "Still reloading at 1s of 2s")
+	# Complete reload
+	weapon.process_cooldown(1.1)
+	Assert.assert_false(weapon.reloading, "Reload complete after 2+ seconds")
+	Assert.assert_eq(weapon.current_ammo, 30, "Ammo refilled to max after reload")
+	Assert.assert_true(weapon.can_fire(), "Can fire after reload completes")
 
 
 # --- Health tests (included here since they're pure logic) ---

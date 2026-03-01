@@ -1,9 +1,10 @@
 extends CanvasLayer
 
-## Simple HUD showing crosshair and HP display.
+## Simple HUD showing crosshair, HP, and ammo display.
 ## Created by the local player's NetworkedPlayer.
 
 var _hp_label: Label = null
+var _ammo_label: Label = null
 var _crosshair: Control = null
 
 
@@ -11,6 +12,7 @@ func _ready() -> void:
 	layer = 10
 	_create_crosshair()
 	_create_hp_label()
+	_create_ammo_label()
 	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 
 
@@ -34,6 +36,19 @@ func update_hp(current_hp: int, max_hp: int) -> void:
 			_hp_label.add_theme_color_override("font_color", Color.YELLOW)
 		else:
 			_hp_label.add_theme_color_override("font_color", Color.RED)
+
+
+func update_ammo(current_ammo: int, max_ammo: int, is_reloading: bool) -> void:
+	if _ammo_label != null:
+		if is_reloading:
+			_ammo_label.text = "RELOADING..."
+			_ammo_label.add_theme_color_override("font_color", Color.YELLOW)
+		else:
+			_ammo_label.text = "Ammo: %d / %d" % [current_ammo, max_ammo]
+			if current_ammo > 0:
+				_ammo_label.add_theme_color_override("font_color", Color.WHITE)
+			else:
+				_ammo_label.add_theme_color_override("font_color", Color.RED)
 
 
 func _create_crosshair() -> void:
@@ -69,3 +84,15 @@ func _create_hp_label() -> void:
 	_hp_label.add_theme_font_size_override("font_size", 20)
 	_hp_label.text = "HP: 100 / 100"
 	add_child(_hp_label)
+
+
+func _create_ammo_label() -> void:
+	_ammo_label = Label.new()
+	_ammo_label.position = Vector2(20, 630)
+	_ammo_label.add_theme_color_override("font_color", Color.WHITE)
+	_ammo_label.add_theme_color_override("font_shadow_color", Color.BLACK)
+	_ammo_label.add_theme_constant_override("shadow_offset_x", 1)
+	_ammo_label.add_theme_constant_override("shadow_offset_y", 1)
+	_ammo_label.add_theme_font_size_override("font_size", 20)
+	_ammo_label.text = "Ammo: 30 / 30"
+	add_child(_ammo_label)

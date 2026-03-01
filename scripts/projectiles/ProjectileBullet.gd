@@ -14,10 +14,21 @@ var _time_alive: float = 0.0
 var _tick_accumulator: float = 0.0
 var _dead := false
 
+const TRACER_LENGTH := 12.0
+const TRACER_COLOR := Color(1.0, 0.9, 0.3)  # Yellow-white
+
 ## Emitted when the bullet hits a player.
 signal hit_player(victim_node: CharacterBody2D, hit_position: Vector2)
 ## Emitted when the bullet hits world geometry.
 signal hit_world(hit_position: Vector2)
+
+
+func _draw() -> void:
+	if speed_vec.length_squared() < 1.0:
+		return
+	var dir := speed_vec.normalized()
+	draw_line(Vector2.ZERO, -dir * TRACER_LENGTH, TRACER_COLOR, 2.0)
+	draw_circle(Vector2.ZERO, 2.0, TRACER_COLOR)
 
 
 func _physics_process(delta: float) -> void:
@@ -45,6 +56,7 @@ func _simulate_tick(tick_delta: float) -> void:
 	# Move and check collision
 	var motion := speed_vec * tick_delta
 	var collision := move_and_collide(motion)
+	queue_redraw()
 	if collision == null:
 		return
 

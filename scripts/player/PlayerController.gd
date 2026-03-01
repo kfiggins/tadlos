@@ -9,12 +9,24 @@ var aim_angle: float = 0.0
 var _facing_right: bool = true
 var _tick_accumulator: float = 0.0
 
+# Buffer edge-triggered inputs so they survive between tick boundaries.
+# is_action_just_pressed fires for one frame, but the 30Hz tick loop may
+# not run that frame — buffering prevents lost jumps/dives.
+var _jump_buffered: bool = false
+var _dive_buffered: bool = false
+
 
 func _ready() -> void:
 	_create_placeholder_sprite()
 
 
 func _physics_process(delta: float) -> void:
+	# Buffer edge-triggered inputs before the tick loop
+	if Input.is_action_just_pressed("jump"):
+		_jump_buffered = true
+	if Input.is_action_just_pressed("dive"):
+		_dive_buffered = true
+
 	# Use same fixed tick rate as NetworkedPlayer for consistent movement
 	var tick_delta := 1.0 / NetConstants.TICK_RATE
 	_tick_accumulator += delta
@@ -22,6 +34,11 @@ func _physics_process(delta: float) -> void:
 		_tick_accumulator -= tick_delta
 
 		var input := sample_input()
+		# Merge buffered edge-triggers into the input
+		if _jump_buffered:
+			input.jump = true
+		if _dive_buffered:
+			input.dive = true
 		var state := _build_state()
 		var result := calculate_velocity(state, input, tick_delta)
 
@@ -29,6 +46,9 @@ func _physics_process(delta: float) -> void:
 		fuel = result.fuel
 		move_and_slide()
 		_update_facing(input.aim_angle)
+		# Clear buffers after the first tick consumes them
+		_jump_buffered = false
+		_dive_buffered = false
 
 	# Push data to debug overlay
 	Debug.set_overlay_data({

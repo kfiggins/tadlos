@@ -26,6 +26,10 @@ var _server_tick: int = 0
 var _last_processed_seq: int = 0
 var _tick_accumulator: float = 0.0
 
+# Buffer edge-triggered inputs so they survive between tick boundaries
+var _jump_buffered: bool = false
+var _dive_buffered: bool = false
+
 # Client-side prediction (local player on client only)
 var _prediction: ClientPrediction = null
 
@@ -89,9 +93,17 @@ func _physics_process(delta: float) -> void:
 func _server_process(delta: float) -> void:
 	_weapon.process_cooldown(delta)
 
-	# Host's own player: sample input directly
+	# Host's own player: buffer edge-triggered inputs + sample
 	if is_multiplayer_authority():
+		if Input.is_action_just_pressed("jump"):
+			_jump_buffered = true
+		if Input.is_action_just_pressed("dive"):
+			_dive_buffered = true
 		_last_input = _sample_input()
+		if _jump_buffered:
+			_last_input.jump = true
+		if _dive_buffered:
+			_last_input.dive = true
 
 	# Fixed tick simulation
 	var tick_delta := 1.0 / NetConstants.TICK_RATE
@@ -101,6 +113,10 @@ func _server_process(delta: float) -> void:
 		_simulate_tick(tick_delta)
 		_server_tick += 1
 		_broadcast_state()
+		# Clear buffers after the first tick consumes them
+		if is_multiplayer_authority():
+			_jump_buffered = false
+			_dive_buffered = false
 
 	# Host fire handling (after tick sim so position is current)
 	if is_multiplayer_authority() and health.is_alive():
@@ -109,7 +125,7 @@ func _server_process(delta: float) -> void:
 			var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
 			_spawn_bullet(origin, WeaponRifle.get_aim_direction(aim_angle))
 
-	# Push debug data for host's own player
+	# Push debug data and HUD for host's own player
 	if is_multiplayer_authority():
 		Debug.set_overlay_data({
 			"velocity": velocity,
@@ -117,6 +133,8 @@ func _server_process(delta: float) -> void:
 			"fuel": fuel,
 			"hp": health.current_hp,
 		})
+		if _hud != null:
+			_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
 
 
 func _simulate_tick(tick_delta: float) -> void:
@@ -135,6 +153,12 @@ func _simulate_tick(tick_delta: float) -> void:
 func _client_local_process(delta: float) -> void:
 	_weapon.process_cooldown(delta)
 
+	# Buffer edge-triggered inputs before the tick loop
+	if Input.is_action_just_pressed("jump"):
+		_jump_buffered = true
+	if Input.is_action_just_pressed("dive"):
+		_dive_buffered = true
+
 	# Fixed tick prediction matching server tick rate
 	var tick_delta := 1.0 / NetConstants.TICK_RATE
 	_tick_accumulator += delta
@@ -142,6 +166,12 @@ func _client_local_process(delta: float) -> void:
 		_tick_accumulator -= tick_delta
 
 		var input := _sample_input()
+		if _jump_buffered:
+			input.jump = true
+		if _dive_buffered:
+			input.dive = true
+		_jump_buffered = false
+		_dive_buffered = false
 		_input_seq += 1
 
 		# Predict locally using shared movement function
@@ -183,14 +213,18 @@ func _client_local_process(delta: float) -> void:
 				"dir_x": direction.x,
 				"dir_y": direction.y,
 			})
+			# Spawn cosmetic bullet locally for instant visual feedback
+			_spawn_cosmetic_bullet(origin, direction)
 
-	# Debug overlay
+	# Debug overlay + HUD ammo
 	Debug.set_overlay_data({
 		"velocity": velocity,
 		"grounded": is_on_floor(),
 		"fuel": fuel,
 		"hp": _display_hp,
 	})
+	if _hud != null:
+		_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
 
 
 func _client_remote_process(delta: float) -> void:
@@ -278,6 +312,20 @@ func _spawn_bullet(origin: Vector2, direction: Vector2) -> void:
 	})
 
 
+## Spawn a visual-only bullet on the client. No hit signals connected.
+func _spawn_cosmetic_bullet(origin: Vector2, direction: Vector2) -> void:
+	var bullets_node := get_node_or_null("../../Bullets")
+	if bullets_node == null:
+		return
+	var bullet := _bullet_scene.instantiate()
+	bullet.position = origin
+	bullet.speed_vec = direction.normalized() * _weapon.config.bullet_speed
+	bullet.owner_peer_id = int(str(name))
+	bullet.gravity = _weapon.config.bullet_gravity
+	bullets_node.add_child(bullet)
+	bullet.add_collision_exception_with(self)
+
+
 func _on_bullet_hit_player(victim_node: CharacterBody2D, hit_position: Vector2) -> void:
 	if not multiplayer.is_server():
 		return
@@ -326,11 +374,15 @@ func _on_player_died(killer_peer_id: int) -> void:
 
 ## Server → Clients: fire event for cosmetic effects.
 @rpc("any_peer", "unreliable")
-func _on_fire_event(_data: Dictionary) -> void:
+func _on_fire_event(data: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
-	# Cosmetic: could spawn muzzle flash / tracer here
-	pass
+	# Local player already spawned their own cosmetic bullet instantly
+	if is_multiplayer_authority():
+		return
+	var origin := Vector2(data.get("origin_x", 0.0), data.get("origin_y", 0.0))
+	var direction := Vector2(data.get("dir_x", 0.0), data.get("dir_y", 0.0))
+	_spawn_cosmetic_bullet(origin, direction)
 
 
 ## Server → Clients: hit event for cosmetic effects.
