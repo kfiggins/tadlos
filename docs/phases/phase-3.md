@@ -1,6 +1,6 @@
 # Phase 3: Client-Side Prediction + Reconciliation for Movement
 
-## Status: NOT STARTED
+## Status: DONE
 
 ## Prerequisites
 - Phase 2 complete (networking host/join works, players replicated)

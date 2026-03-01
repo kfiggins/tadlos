@@ -29,7 +29,7 @@ Each phase has a detailed spec in `docs/phases/phase-N.md`. Read the relevant ph
 | 0 | Repo + project skeleton + test harness | DONE |
 | 1 | Local movement prototype (no networking) | DONE |
 | 2 | Networking foundation (host/join + replicated players) | DONE |
-| 3 | Client-side prediction + reconciliation | NOT STARTED |
+| 3 | Client-side prediction + reconciliation | DONE |
 | 4 | Projectile weapons MVP (server-authoritative) | NOT STARTED |
 | 5 | Respawn loop + scoring + game rules | NOT STARTED |
 | 6 | 8-player stability pass + net debug tools | NOT STARTED |
