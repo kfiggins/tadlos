@@ -40,6 +40,8 @@ var _remote_time: float = 0.0
 # Health (server-authoritative, replicated to clients)
 var health: Health = null
 var _display_hp: int = 100
+var _is_dead: bool = false
+var _killer_peer_id: int = 0
 
 # Weapon (server has authoritative instance, client has prediction instance)
 var _weapon: WeaponRifle = null
@@ -91,6 +93,25 @@ func _physics_process(delta: float) -> void:
 
 
 func _server_process(delta: float) -> void:
+	# Scoreboard toggle (host player, works even when dead)
+	if is_multiplayer_authority():
+		if Input.is_action_just_pressed("scoreboard") and _hud != null:
+			var game_mode := get_node_or_null("../../GameModeDeathmatch")
+			if game_mode:
+				_hud.toggle_scoreboard(game_mode.scores)
+		if Input.is_action_just_released("scoreboard") and _hud != null:
+			_hud.hide_scoreboard()
+
+	# Dead players: only broadcast state, skip sim and input
+	if _is_dead:
+		var tick_delta := 1.0 / NetConstants.TICK_RATE
+		_tick_accumulator += delta
+		while _tick_accumulator >= tick_delta:
+			_tick_accumulator -= tick_delta
+			_server_tick += 1
+			_broadcast_state()
+		return
+
 	_weapon.process_cooldown(delta)
 
 	# Host's own player: buffer edge-triggered inputs + sample
@@ -151,6 +172,18 @@ func _simulate_tick(tick_delta: float) -> void:
 
 
 func _client_local_process(delta: float) -> void:
+	# Scoreboard toggle (works even when dead)
+	if Input.is_action_just_pressed("scoreboard") and _hud != null:
+		var game_mode := get_node_or_null("../../GameModeDeathmatch")
+		if game_mode:
+			_hud.toggle_scoreboard(game_mode.scores)
+	if Input.is_action_just_released("scoreboard") and _hud != null:
+		_hud.hide_scoreboard()
+
+	# Dead: skip input/movement, just show death screen
+	if _is_dead:
+		return
+
 	_weapon.process_cooldown(delta)
 
 	# Buffer edge-triggered inputs before the tick loop
@@ -368,6 +401,65 @@ func _on_health_changed(new_hp: int, max_hp: int) -> void:
 
 func _on_player_died(killer_peer_id: int) -> void:
 	Debug.log("net", "Player %s killed by peer %d" % [name, killer_peer_id])
+	var game_mode := get_node_or_null("../../GameModeDeathmatch")
+	if game_mode:
+		game_mode.on_player_killed(killer_peer_id, int(str(name)))
+
+
+## Server-side: mark player as dead or alive. Called by GameModeDeathmatch.
+func set_dead(dead: bool, killer_id: int = 0) -> void:
+	_is_dead = dead
+	_killer_peer_id = killer_id
+	if dead:
+		$CollisionShape2D.set_deferred("disabled", true)
+		$Sprite2D.visible = false
+		velocity = Vector2.ZERO
+		# Notify all clients of death
+		_receive_death.rpc(killer_id)
+		# Update host HUD if this is the host's player
+		if is_multiplayer_authority() and _hud != null:
+			_hud.show_death_screen(killer_id, GameModeDeathmatch.RESPAWN_DELAY)
+	else:
+		$CollisionShape2D.set_deferred("disabled", false)
+		$Sprite2D.visible = true
+
+
+func is_player_dead() -> bool:
+	return _is_dead
+
+
+## Server-side: respawn player at position. Called by GameModeDeathmatch.
+func respawn(spawn_pos: Vector2) -> void:
+	_is_dead = false
+	_killer_peer_id = 0
+	position = spawn_pos
+	velocity = Vector2.ZERO
+	fuel = MovementTuning.JETPACK_MAX_FUEL
+	health.reset()
+	_weapon.reset()
+	$CollisionShape2D.set_deferred("disabled", false)
+	$Sprite2D.visible = true
+	# Host HUD update
+	if is_multiplayer_authority() and _hud != null:
+		_hud.hide_death_screen()
+		_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
+
+
+## Client-side: handle respawn from server broadcast.
+func on_client_respawn(spawn_pos: Vector2) -> void:
+	_is_dead = false
+	_killer_peer_id = 0
+	_display_hp = 100
+	position = spawn_pos
+	velocity = Vector2.ZERO
+	$Sprite2D.visible = true
+	if is_multiplayer_authority():
+		fuel = MovementTuning.JETPACK_MAX_FUEL
+		_weapon.reset()
+		if _hud != null:
+			_hud.hide_death_screen()
+			_hud.update_hp(100, 100)
+			_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
 
 
 # --- Client RPCs ---
@@ -392,6 +484,22 @@ func _on_hit_event(_data: Dictionary) -> void:
 		return
 	# Cosmetic: could spawn blood puff here
 	pass
+
+
+## Server → Clients: player death notification.
+@rpc("any_peer", "reliable")
+func _receive_death(killer_id: int) -> void:
+	if multiplayer.is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if sender != 1:
+		return
+	_is_dead = true
+	_killer_peer_id = killer_id
+	_display_hp = 0
+	$Sprite2D.visible = false
+	if is_multiplayer_authority() and _hud != null:
+		_hud.show_death_screen(killer_id, GameModeDeathmatch.RESPAWN_DELAY)
 
 
 ## Server → Clients: health update.
@@ -419,6 +527,9 @@ func _send_input(input_data: Dictionary) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	if sender != get_multiplayer_authority():
 		Debug.log("net", "Rejected input from peer %d for player %d" % [sender, get_multiplayer_authority()])
+		return
+
+	if _is_dead:
 		return
 
 	if not _validate_input(input_data):
@@ -450,6 +561,7 @@ func _broadcast_state() -> void:
 		"tick": _server_tick,
 		"last_input_seq": _last_processed_seq,
 		"hp": health.current_hp,
+		"is_dead": _is_dead,
 	}
 	_receive_state.rpc(snapshot)
 
@@ -532,6 +644,10 @@ func _handle_remote_snapshot(state: Dictionary) -> void:
 		return
 
 	_display_hp = state.get("hp", _display_hp)
+	var dead: bool = state.get("is_dead", false)
+	if dead != _is_dead:
+		_is_dead = dead
+		$Sprite2D.visible = not dead
 
 	var interp_state := {
 		"position": Vector2(state.get("position_x", 0.0), state.get("position_y", 0.0)),

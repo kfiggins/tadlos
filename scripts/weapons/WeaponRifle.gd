@@ -42,6 +42,13 @@ func start_reload() -> void:
 	reload_timer = config.reload_time
 
 
+func reset() -> void:
+	current_ammo = config.max_ammo
+	cooldown_timer = 0.0
+	reloading = false
+	reload_timer = 0.0
+
+
 func process_cooldown(delta: float) -> void:
 	if cooldown_timer > 0.0:
 		cooldown_timer -= delta

@@ -20,6 +20,9 @@ var _test_scenes: Array[String] = [
 	"res://tests/test_projectile_hits_player.tscn",
 	"res://tests/test_projectile_world_collision.tscn",
 	"res://tests/test_desync_safety.tscn",
+	"res://tests/test_scoring_on_kill.tscn",
+	"res://tests/test_respawn_timer.tscn",
+	"res://tests/test_spawn_safety.tscn",
 ]
 
 var _total_passed: int = 0

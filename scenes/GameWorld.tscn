@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://cgw1a2b3c4d5"]
+[gd_scene load_steps=4 format=3 uid="uid://cgw1a2b3c4d5"]
 
 [ext_resource type="Script" path="res://scripts/GameWorld.gd" id="1_gameworld"]
 [ext_resource type="Script" path="res://scripts/net/PlayerSpawner.gd" id="2_spawner"]
+[ext_resource type="Script" path="res://scripts/GameModeDeathmatch.gd" id="3_gamemode"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_floor"]
 size = Vector2(2000, 32)
@@ -20,10 +21,33 @@ script = ExtResource("1_gameworld")
 
 [node name="Players" type="Node" parent="."]
 
+[node name="Bullets" type="Node" parent="."]
+
+[node name="SpawnMarkers" type="Node2D" parent="."]
+
+[node name="Spawn1" type="Marker2D" parent="SpawnMarkers"]
+position = Vector2(200, 280)
+
+[node name="Spawn2" type="Marker2D" parent="SpawnMarkers"]
+position = Vector2(400, 280)
+
+[node name="Spawn3" type="Marker2D" parent="SpawnMarkers"]
+position = Vector2(600, 280)
+
+[node name="Spawn4" type="Marker2D" parent="SpawnMarkers"]
+position = Vector2(1000, 280)
+
+[node name="Spawn5" type="Marker2D" parent="SpawnMarkers"]
+position = Vector2(200, 168)
+
+[node name="Spawn6" type="Marker2D" parent="SpawnMarkers"]
+position = Vector2(700, 88)
+
+[node name="GameModeDeathmatch" type="Node" parent="."]
+script = ExtResource("3_gamemode")
+
 [node name="PlayerSpawner" type="Node" parent="."]
 script = ExtResource("2_spawner")
-
-[node name="Bullets" type="Node" parent="."]
 
 [node name="Floor" type="StaticBody2D" parent="."]
 position = Vector2(600, 320)
