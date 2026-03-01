@@ -33,15 +33,40 @@ var _prediction: ClientPrediction = null
 var _interpolation: RemoteInterpolation = null
 var _remote_time: float = 0.0
 
+# Health (server-authoritative, replicated to clients)
+var health: Health = null
+var _display_hp: int = 100
+
+# Weapon (server has authoritative instance, client has prediction instance)
+var _weapon: WeaponRifle = null
+var _bullet_scene: PackedScene = preload("res://scenes/Bullet.tscn")
+
+# HUD (local player only)
+var _hud: CanvasLayer = null
+var _hud_scene: PackedScene = preload("res://scenes/HUD.tscn")
+
+# Anti-cheat: max distance from server position for fire origin validation
+const FIRE_ORIGIN_TOLERANCE := 60.0
+
 
 func _ready() -> void:
 	_create_placeholder_sprite()
+
+	health = Health.new()
+	_weapon = WeaponRifle.new()
+
+	if multiplayer.is_server():
+		health.died.connect(_on_player_died)
+		health.health_changed.connect(_on_health_changed)
 
 	if is_multiplayer_authority():
 		var camera := Camera2D.new()
 		camera.name = "Camera2D"
 		add_child(camera)
 		camera.make_current()
+		# Create HUD for local player
+		_hud = _hud_scene.instantiate()
+		add_child(_hud)
 
 	# Initialize prediction for local player on client
 	if not multiplayer.is_server() and is_multiplayer_authority():
@@ -62,6 +87,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _server_process(delta: float) -> void:
+	_weapon.process_cooldown(delta)
+
 	# Host's own player: sample input directly
 	if is_multiplayer_authority():
 		_last_input = _sample_input()
@@ -75,12 +102,20 @@ func _server_process(delta: float) -> void:
 		_server_tick += 1
 		_broadcast_state()
 
+	# Host fire handling (after tick sim so position is current)
+	if is_multiplayer_authority() and health.is_alive():
+		if Input.is_action_pressed("fire") and _weapon.can_fire():
+			_weapon.fire()
+			var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
+			_spawn_bullet(origin, WeaponRifle.get_aim_direction(aim_angle))
+
 	# Push debug data for host's own player
 	if is_multiplayer_authority():
 		Debug.set_overlay_data({
 			"velocity": velocity,
 			"grounded": is_on_floor(),
 			"fuel": fuel,
+			"hp": health.current_hp,
 		})
 
 
@@ -98,6 +133,8 @@ func _simulate_tick(tick_delta: float) -> void:
 
 
 func _client_local_process(delta: float) -> void:
+	_weapon.process_cooldown(delta)
+
 	# Fixed tick prediction matching server tick rate
 	var tick_delta := 1.0 / NetConstants.TICK_RATE
 	_tick_accumulator += delta
@@ -133,11 +170,26 @@ func _client_local_process(delta: float) -> void:
 		payload["seq"] = _input_seq
 		_send_input.rpc_id(1, payload)
 
+	# Client fire handling (predicted — server validates)
+	if _display_hp > 0:
+		if Input.is_action_pressed("fire") and _weapon.can_fire():
+			_weapon.fire()
+			var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
+			var direction := WeaponRifle.get_aim_direction(aim_angle)
+			_fire_request.rpc_id(1, {
+				"seq": _input_seq,
+				"origin_x": origin.x,
+				"origin_y": origin.y,
+				"dir_x": direction.x,
+				"dir_y": direction.y,
+			})
+
 	# Debug overlay
 	Debug.set_overlay_data({
 		"velocity": velocity,
 		"grounded": is_on_floor(),
 		"fuel": fuel,
+		"hp": _display_hp,
 	})
 
 
@@ -162,6 +214,148 @@ func _sample_input() -> Dictionary:
 	aim_angle = input.aim_angle
 	return input
 
+
+# --- Fire Request RPC ---
+
+## Client → Server: request to fire weapon.
+@rpc("any_peer", "reliable")
+func _fire_request(data: Dictionary) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender := multiplayer.get_remote_sender_id()
+	if sender != get_multiplayer_authority():
+		Debug.log("net", "Rejected fire from peer %d for player %d" % [sender, get_multiplayer_authority()])
+		return
+
+	if not health.is_alive():
+		return
+
+	# Server-side cooldown check
+	if not _weapon.can_fire():
+		Debug.log("net", "Fire rejected: cooldown not elapsed for peer %d" % sender)
+		return
+
+	# Validate fire origin is near server-known position
+	var origin := Vector2(data.get("origin_x", 0.0), data.get("origin_y", 0.0))
+	if origin.distance_to(global_position) > FIRE_ORIGIN_TOLERANCE:
+		Debug.log("net", "Fire rejected: origin too far from server pos for peer %d" % sender)
+		return
+
+	_weapon.fire()
+	var direction := Vector2(data.get("dir_x", 0.0), data.get("dir_y", 0.0))
+	if direction.length_squared() < 0.01:
+		Debug.log("net", "Fire rejected: invalid direction for peer %d" % sender)
+		return
+	_spawn_bullet(origin, direction)
+
+
+# --- Bullet Spawning (server only) ---
+
+func _spawn_bullet(origin: Vector2, direction: Vector2) -> void:
+	var bullets_node := get_node_or_null("../../Bullets")
+	if bullets_node == null:
+		return
+
+	var bullet := _bullet_scene.instantiate()
+	bullet.position = origin
+	bullet.speed_vec = direction.normalized() * _weapon.config.bullet_speed
+	bullet.owner_peer_id = int(str(name))
+	bullet.damage = _weapon.config.damage
+	bullet.gravity = _weapon.config.bullet_gravity
+	bullet.hit_player.connect(_on_bullet_hit_player)
+	bullet.hit_world.connect(_on_bullet_hit_world)
+	bullets_node.add_child(bullet)
+	# Avoid bullet colliding with the shooter
+	bullet.add_collision_exception_with(self)
+
+	# Broadcast fire event to all clients (for cosmetic effects)
+	_on_fire_event.rpc({
+		"origin_x": origin.x,
+		"origin_y": origin.y,
+		"dir_x": direction.x,
+		"dir_y": direction.y,
+	})
+
+
+func _on_bullet_hit_player(victim_node: CharacterBody2D, hit_position: Vector2) -> void:
+	if not multiplayer.is_server():
+		return
+	# Apply damage to victim
+	if victim_node.has_method("apply_damage"):
+		var shooter_id := int(str(name))
+		victim_node.apply_damage(_weapon.config.damage, shooter_id)
+		# Broadcast hit event
+		_on_hit_event.rpc({
+			"victim_id": int(str(victim_node.name)),
+			"shooter_id": shooter_id,
+			"position_x": hit_position.x,
+			"position_y": hit_position.y,
+			"damage": _weapon.config.damage,
+		})
+
+
+func _on_bullet_hit_world(hit_position: Vector2) -> void:
+	# Could broadcast impact effect to clients
+	pass
+
+
+## Apply damage to this player (server-only).
+func apply_damage(amount: int, source_peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if amount <= 0:
+		return
+	health.take_damage(amount, source_peer_id)
+
+
+# --- Health Callbacks (server) ---
+
+func _on_health_changed(new_hp: int, max_hp: int) -> void:
+	_receive_health_update.rpc(new_hp)
+	# Update host's own HUD
+	if is_multiplayer_authority() and _hud != null:
+		_hud.update_hp(new_hp, max_hp)
+
+
+func _on_player_died(killer_peer_id: int) -> void:
+	Debug.log("net", "Player %s killed by peer %d" % [name, killer_peer_id])
+
+
+# --- Client RPCs ---
+
+## Server → Clients: fire event for cosmetic effects.
+@rpc("any_peer", "unreliable")
+func _on_fire_event(_data: Dictionary) -> void:
+	if multiplayer.is_server():
+		return
+	# Cosmetic: could spawn muzzle flash / tracer here
+	pass
+
+
+## Server → Clients: hit event for cosmetic effects.
+@rpc("any_peer", "reliable")
+func _on_hit_event(_data: Dictionary) -> void:
+	if multiplayer.is_server():
+		return
+	# Cosmetic: could spawn blood puff here
+	pass
+
+
+## Server → Clients: health update.
+@rpc("any_peer", "reliable")
+func _receive_health_update(new_hp: int) -> void:
+	if multiplayer.is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if sender != 1:
+		return
+	_display_hp = new_hp
+	if _hud != null:
+		_hud.update_hp(new_hp, 100)
+
+
+# --- Input & State RPCs (unchanged from Phase 3) ---
 
 ## Client → Server: send input for this player.
 @rpc("any_peer", "reliable")
@@ -203,6 +397,7 @@ func _broadcast_state() -> void:
 		"aim_angle": _last_input.get("aim_angle", 0.0),
 		"tick": _server_tick,
 		"last_input_seq": _last_processed_seq,
+		"hp": health.current_hp,
 	}
 	_receive_state.rpc(snapshot)
 
@@ -227,6 +422,8 @@ func _receive_state(state: Dictionary) -> void:
 func _handle_server_reconciliation(state: Dictionary) -> void:
 	if _prediction == null:
 		return
+
+	_display_hp = state.get("hp", _display_hp)
 
 	var server_pos := Vector2(
 		state.get("position_x", position.x),
@@ -274,12 +471,15 @@ func _handle_server_reconciliation(state: Dictionary) -> void:
 		"velocity": velocity,
 		"grounded": is_on_floor(),
 		"fuel": fuel,
+		"hp": _display_hp,
 	})
 
 
 func _handle_remote_snapshot(state: Dictionary) -> void:
 	if _interpolation == null:
 		return
+
+	_display_hp = state.get("hp", _display_hp)
 
 	var interp_state := {
 		"position": Vector2(state.get("position_x", 0.0), state.get("position_y", 0.0)),

@@ -16,6 +16,10 @@ var _test_scenes: Array[String] = [
 	"res://tests/test_late_join.tscn",
 	"res://tests/test_prediction_reconcile.tscn",
 	"res://tests/test_remote_interpolation.tscn",
+	"res://tests/test_weapon_cooldown.tscn",
+	"res://tests/test_projectile_hits_player.tscn",
+	"res://tests/test_projectile_world_collision.tscn",
+	"res://tests/test_desync_safety.tscn",
 ]
 
 var _total_passed: int = 0

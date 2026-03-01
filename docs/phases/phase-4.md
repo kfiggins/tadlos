@@ -1,6 +1,6 @@
 # Phase 4: Projectile Weapons MVP (Server-Authoritative)
 
-## Status: NOT STARTED
+## Status: DONE
 
 ## Prerequisites
 - Phase 3 complete (prediction + reconciliation working)

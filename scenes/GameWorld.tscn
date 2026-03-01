@@ -23,6 +23,8 @@ script = ExtResource("1_gameworld")
 [node name="PlayerSpawner" type="Node" parent="."]
 script = ExtResource("2_spawner")
 
+[node name="Bullets" type="Node" parent="."]
+
 [node name="Floor" type="StaticBody2D" parent="."]
 position = Vector2(600, 320)
 
