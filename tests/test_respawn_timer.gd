@@ -54,12 +54,12 @@ func _test_health_reset_revives() -> void:
 func _test_weapon_reset_refills_ammo() -> void:
 	var weapon := WeaponRifle.new()
 	# Fire some shots
-	for i in range(5):
+	for i in range(3):
 		weapon.fire()
-		weapon.process_cooldown(0.2)
-	Assert.assert_eq(weapon.current_ammo, 25, "5 shots fired, 25 remaining")
+		weapon.process_cooldown(0.4)
+	Assert.assert_eq(weapon.current_ammo, 5, "3 shots fired, 5 remaining")
 	weapon.reset()
-	Assert.assert_eq(weapon.current_ammo, 30, "Ammo refilled to max after reset")
+	Assert.assert_eq(weapon.current_ammo, 8, "Ammo refilled to max after reset")
 
 
 func _test_weapon_reset_clears_reload() -> void:
@@ -90,7 +90,7 @@ func _test_full_respawn_flow() -> void:
 
 	# Fire some shots
 	weapon.fire()
-	weapon.process_cooldown(0.2)
+	weapon.process_cooldown(0.4)
 	weapon.fire()
 
 	# Take lethal damage
@@ -105,7 +105,7 @@ func _test_full_respawn_flow() -> void:
 	Assert.assert_true(hp.is_alive(), "Alive after respawn")
 	Assert.assert_eq(hp.current_hp, 100, "Full HP after respawn")
 	Assert.assert_true(weapon.can_fire(), "Can fire after respawn")
-	Assert.assert_eq(weapon.current_ammo, 30, "Full ammo after respawn")
+	Assert.assert_eq(weapon.current_ammo, 8, "Full ammo after respawn")
 
 
 func _test_spawn_points_used_for_respawn() -> void:
@@ -124,4 +124,4 @@ func _test_spawn_points_used_for_respawn() -> void:
 
 func _test_respawn_delay_constant() -> void:
 	# Verify the respawn delay matches spec (3.0 seconds)
-	Assert.assert_eq(GameModeDeathmatch.RESPAWN_DELAY, 3.0, "Respawn delay is 3.0 seconds")
+	Assert.assert_eq(TeamConstants.RESPAWN_DELAY, 3.0, "Respawn delay is 3.0 seconds")

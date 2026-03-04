@@ -20,7 +20,7 @@ func run_tests() -> void:
 func _test_empty_returns_fallback() -> void:
 	var sp := SpawnPoints.new()
 	var result := sp.get_spawn_point()
-	Assert.assert_eq(result, Vector2(400, 280), "Empty SpawnPoints returns fallback position")
+	Assert.assert_eq(result, Vector2(3000, 960), "Empty SpawnPoints returns fallback position")
 
 
 func _test_single_point_returned() -> void:
@@ -110,17 +110,21 @@ func _test_add_point() -> void:
 
 func _test_game_world_spawn_count() -> void:
 	# Verify the GameWorld scene has the expected number of spawn markers
-	# by constructing what we expect (6 spawn points)
+	# by constructing what we expect (10 spawn points)
 	var expected_positions: Array[Vector2] = [
-		Vector2(200, 280),
-		Vector2(400, 280),
-		Vector2(600, 280),
-		Vector2(1000, 280),
-		Vector2(200, 168),
-		Vector2(700, 88),
+		Vector2(700, 810),
+		Vector2(2200, 830),
+		Vector2(3800, 810),
+		Vector2(5300, 830),
+		Vector2(1400, 570),
+		Vector2(4600, 580),
+		Vector2(900, 380),
+		Vector2(5100, 380),
+		Vector2(3000, 130),
+		Vector2(3000, 960),
 	]
-	Assert.assert_eq(expected_positions.size(), 6, "GameWorld should have 6 spawn points configured")
-	# Verify all are in reasonable playable area
+	Assert.assert_eq(expected_positions.size(), 10, "GameWorld should have 10 spawn points configured")
+	# Verify all are in reasonable playable area (map is now 6000px wide, floor at y=1000)
 	for pos in expected_positions:
-		Assert.assert_true(pos.x > -400 and pos.x < 1600, "Spawn x=%d within playable area" % pos.x)
-		Assert.assert_true(pos.y > 0 and pos.y < 320, "Spawn y=%d above floor" % pos.y)
+		Assert.assert_true(pos.x > -100 and pos.x < 6100, "Spawn x=%d within playable area" % pos.x)
+		Assert.assert_true(pos.y > 0 and pos.y < 1000, "Spawn y=%d above floor" % pos.y)

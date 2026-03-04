@@ -18,8 +18,11 @@ res://scripts/net/         # Networking scripts
 res://scripts/player/      # Player-related scripts
 res://scripts/weapons/     # Weapon scripts
 res://scripts/projectiles/ # Projectile scripts
+res://scripts/bot/         # Bot AI scripts
 res://tests/               # Test scenes and scripts
 ```
+
+**For a concise structural overview of the codebase, see `docs/architecture.md`.**
 
 ## Phase Tracker
 Each phase has a detailed spec in `docs/phases/phase-N.md`. Read the relevant phase doc before starting work.
@@ -33,6 +36,8 @@ Each phase has a detailed spec in `docs/phases/phase-N.md`. Read the relevant ph
 | 4 | Projectile weapons MVP (server-authoritative) | DONE |
 | 5 | Respawn loop + scoring + game rules | DONE |
 | 6 | 8-player stability pass + net debug tools | DONE |
+| 7 | AI bots (menu UI + smart bot AI) | DONE |
+| 8 | Team Deathmatch game mode (Red vs Blue) | DONE |
 
 **Update this table as phases are completed.** Mark as `IN PROGRESS` when starting, `DONE` when the phase-complete loop passes.
 
@@ -104,11 +109,12 @@ Aiming is mouse-based and must be defined before weapons work:
 If you are an AI agent picking up work on this project:
 
 1. Read this file first
-2. Check the Phase Tracker table above to find current progress
-3. Read the relevant phase doc at `docs/phases/phase-N.md`
-4. Check git log for recent changes and context
-5. Follow the phase completion protocol exactly
-6. Update this file's phase tracker when done
+2. Read `docs/architecture.md` for a concise structural overview
+3. Check the Phase Tracker table above to find current progress
+4. **Only read the phase doc relevant to your current work** (`docs/phases/phase-N.md`). Do NOT read all phase docs — they consume too much context.
+5. Check git log for recent changes and context
+6. Follow the phase completion protocol exactly
+7. Update this file's phase tracker when done
 
 ### Prompt Template for Each Phase
 When working on a phase, follow this approach:

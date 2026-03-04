@@ -43,8 +43,8 @@ func _test_cooldown_blocks_immediate_refire() -> void:
 func _test_cooldown_elapses_allows_fire() -> void:
 	var weapon := WeaponRifle.new()
 	weapon.fire()
-	# Advance cooldown past fire_rate (0.15s)
-	weapon.process_cooldown(0.16)
+	# Advance cooldown past fire_rate (0.35s)
+	weapon.process_cooldown(0.36)
 	Assert.assert_true(weapon.can_fire(), "Can fire after cooldown elapses")
 	var result := weapon.fire()
 	Assert.assert_true(result, "Fire succeeds after cooldown")
@@ -73,7 +73,7 @@ func _test_fire_count_matches_expected() -> void:
 		fire_count += 1
 	if weapon.fire():
 		fire_count += 1  # Should fail
-	weapon.process_cooldown(0.16)
+	weapon.process_cooldown(0.36)
 	if weapon.fire():
 		fire_count += 1
 	Assert.assert_eq(fire_count, 2, "Fire count is 2 (not 3): cooldown blocked one attempt")
@@ -107,7 +107,7 @@ func _test_reload_blocks_fire() -> void:
 	config.reload_time = 2.0
 	var weapon := WeaponRifle.new(config)
 	weapon.fire()
-	weapon.process_cooldown(0.16)  # Clear fire cooldown
+	weapon.process_cooldown(0.36)  # Clear fire cooldown
 	Assert.assert_false(weapon.can_fire(), "Cannot fire while reloading")
 	Assert.assert_false(weapon.fire(), "Fire returns false while reloading")
 
@@ -119,7 +119,7 @@ func _test_reload_completes_and_refills() -> void:
 	var weapon := WeaponRifle.new(config)
 	# Empty the magazine
 	for i in range(30):
-		weapon.process_cooldown(0.16)
+		weapon.process_cooldown(0.36)
 		weapon.fire()
 	Assert.assert_true(weapon.reloading, "Reloading after emptying magazine")
 	Assert.assert_eq(weapon.current_ammo, 0, "Ammo is 0 during reload")

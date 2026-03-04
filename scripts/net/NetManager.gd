@@ -13,6 +13,9 @@ var is_host: bool = false
 var local_peer_id: int = 0
 var connected_peers: Array[int] = []
 var lag_sim: LagSimulator = LagSimulator.new()
+var requested_bot_count: int = 0
+var game_mode: int = 0  # TeamConstants.GameMode.FFA
+var requested_team: int = 0  # TeamConstants.Team.NONE (auto-assign)
 
 
 func host(port: int = NetConstants.DEFAULT_PORT) -> Error:
@@ -73,6 +76,9 @@ func _reset() -> void:
 	is_host = false
 	local_peer_id = 0
 	connected_peers.clear()
+	requested_bot_count = 0
+	game_mode = 0
+	requested_team = 0
 
 
 func _disconnect_signal(sig: Signal, callable: Callable) -> void:
@@ -81,7 +87,8 @@ func _disconnect_signal(sig: Signal, callable: Callable) -> void:
 
 
 func _on_peer_connected(peer_id: int) -> void:
-	if is_host and connected_peers.size() >= NetConstants.MAX_PLAYERS - 1:
+	var occupied_slots := connected_peers.size() + requested_bot_count
+	if is_host and occupied_slots >= NetConstants.MAX_PLAYERS - 1:
 		Debug.log("net", "Rejecting peer %d: server full" % peer_id)
 		var peer := multiplayer.multiplayer_peer as ENetMultiplayerPeer
 		if peer:

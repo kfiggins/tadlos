@@ -48,6 +48,57 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 22
 text = "Host"
 
+[node name="ModeContainer" type="HBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+
+[node name="ModeLabel" type="Label" parent="VBoxContainer/ModeContainer"]
+layout_mode = 2
+text = "Mode:"
+
+[node name="ModeSelect" type="OptionButton" parent="VBoxContainer/ModeContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 2
+popup/item_0/text = "Free-for-All"
+popup/item_1/text = "Team Deathmatch"
+popup/item_1/id = 1
+
+[node name="TeamContainer" type="HBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+visible = false
+
+[node name="TeamLabel" type="Label" parent="VBoxContainer/TeamContainer"]
+layout_mode = 2
+text = "Team:"
+
+[node name="TeamSelect" type="OptionButton" parent="VBoxContainer/TeamContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 3
+popup/item_0/text = "Auto"
+popup/item_1/text = "Red"
+popup/item_1/id = 1
+popup/item_2/text = "Blue"
+popup/item_2/id = 2
+
+[node name="BotContainer" type="HBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+
+[node name="BotLabel" type="Label" parent="VBoxContainer/BotContainer"]
+layout_mode = 2
+text = "Bots:"
+
+[node name="BotSpinBox" type="SpinBox" parent="VBoxContainer/BotContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 7.0
+step = 1.0
+value = 0.0
+
 [node name="IPContainer" type="HBoxContainer" parent="VBoxContainer"]
 layout_mode = 2
 

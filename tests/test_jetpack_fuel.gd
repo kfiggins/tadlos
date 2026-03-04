@@ -11,7 +11,7 @@ func run_tests() -> void:
 	_test_jetpack_provides_upward_thrust()
 	_test_jetpack_stops_at_zero_fuel()
 	_test_fuel_recharges_on_ground()
-	_test_fuel_does_not_recharge_in_air()
+	_test_fuel_recharges_in_air_when_not_jetting()
 	_test_fuel_capped_at_max()
 
 
@@ -64,12 +64,12 @@ func _test_fuel_recharges_on_ground() -> void:
 	Assert.assert_gt(result.fuel, low_fuel, "Fuel recharges on ground")
 
 
-func _test_fuel_does_not_recharge_in_air() -> void:
+func _test_fuel_recharges_in_air_when_not_jetting() -> void:
 	var low_fuel := 50.0
 	var state := _make_state(Vector2.ZERO, false, low_fuel)
 	var input := _make_input()  # no jetpack pressed, in air
 	var result := PlayerController.calculate_velocity(state, input, DELTA)
-	Assert.assert_eq(result.fuel, low_fuel, "Fuel does not recharge in air")
+	Assert.assert_gt(result.fuel, low_fuel, "Fuel recharges in air when not using jetpack")
 
 
 func _test_fuel_capped_at_max() -> void:

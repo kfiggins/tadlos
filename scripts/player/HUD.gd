@@ -7,6 +7,10 @@ var _hp_label: Label = null
 var _ammo_label: Label = null
 var _crosshair: Control = null
 
+# Boost ring
+var _boost_ring: Control = null
+var _boost_ratio: float = 1.0
+
 # Death screen
 var _death_overlay: ColorRect = null
 var _death_label: Label = null
@@ -25,6 +29,14 @@ var _scoreboard_panel: ColorRect = null
 var _scoreboard_labels: Array[Label] = []
 var _scoreboard_visible: bool = false
 
+# Team data (populated by set_team_data for TDM mode)
+var _team_assignments: Dictionary = {}
+var _team_scores: Dictionary = {}
+
+# Countdown
+var _countdown_label: Label = null
+var _go_timer: float = 0.0
+
 
 func _ready() -> void:
 	layer = 10
@@ -34,6 +46,8 @@ func _ready() -> void:
 	_create_death_screen()
 	_create_kill_feed()
 	_create_scoreboard()
+	_create_countdown_label()
+	_create_boost_ring()
 	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 
 
@@ -52,6 +66,12 @@ func _process(delta: float) -> void:
 			_respawn_label.text = "Respawning in %.1f..." % _respawn_countdown
 		else:
 			_respawn_label.text = "Respawning..."
+
+	# "GO!" fade timer
+	if _go_timer > 0.0:
+		_go_timer -= delta
+		if _go_timer <= 0.0 and _countdown_label != null:
+			_countdown_label.visible = false
 
 	# Kill feed fade
 	var to_remove: Array = []
@@ -91,6 +111,12 @@ func update_ammo(current_ammo: int, max_ammo: int, is_reloading: bool) -> void:
 				_ammo_label.add_theme_color_override("font_color", Color.RED)
 
 
+func update_fuel(current_fuel: float, max_fuel: float) -> void:
+	_boost_ratio = clampf(current_fuel / max_fuel, 0.0, 1.0)
+	if _boost_ring != null:
+		_boost_ring.queue_redraw()
+
+
 # --- Death Screen ---
 
 func show_death_screen(killer_id: int, respawn_delay: float) -> void:
@@ -110,6 +136,30 @@ func hide_death_screen() -> void:
 		_death_overlay.visible = false
 	if _crosshair != null:
 		_crosshair.visible = true
+
+
+# --- Countdown ---
+
+func show_countdown(seconds: int) -> void:
+	if _countdown_label == null:
+		return
+	_go_timer = 0.0
+	if seconds > 0:
+		_countdown_label.text = str(seconds)
+		_countdown_label.add_theme_color_override("font_color", Color.WHITE)
+		_countdown_label.visible = true
+	else:
+		_countdown_label.text = "GO!"
+		_countdown_label.add_theme_color_override("font_color", Color.GREEN)
+		_countdown_label.visible = true
+		_go_timer = 1.0
+
+
+func hide_countdown() -> void:
+	if _countdown_label == null:
+		return
+	if _go_timer <= 0.0:
+		_countdown_label.visible = false
 
 
 # --- Kill Feed ---
@@ -136,6 +186,11 @@ func add_kill_feed(killer_id: int, victim_id: int) -> void:
 
 # --- Scoreboard ---
 
+func set_team_data(assignments: Dictionary, t_scores: Dictionary) -> void:
+	_team_assignments = assignments
+	_team_scores = t_scores
+
+
 func toggle_scoreboard(scores: Dictionary) -> void:
 	_scoreboard_visible = true
 	_update_scoreboard(scores)
@@ -158,6 +213,13 @@ func _update_scoreboard(scores: Dictionary) -> void:
 	if _scoreboard_panel == null:
 		return
 
+	if not _team_assignments.is_empty():
+		_update_team_scoreboard(scores)
+	else:
+		_update_ffa_scoreboard(scores)
+
+
+func _update_ffa_scoreboard(scores: Dictionary) -> void:
 	# Header
 	var header := Label.new()
 	header.text = "  Player          Kills    Deaths"
@@ -182,6 +244,76 @@ func _update_scoreboard(scores: Dictionary) -> void:
 		_scoreboard_panel.add_child(label)
 		_scoreboard_labels.append(label)
 		y_offset += 25
+
+
+func _update_team_scoreboard(scores: Dictionary) -> void:
+	var y_offset := 15
+
+	# Group players by team
+	var red_players: Array = []
+	var blue_players: Array = []
+	for peer_id in scores:
+		var t: int = _team_assignments.get(peer_id, 0)
+		if t == TeamConstants.Team.RED:
+			red_players.append(peer_id)
+		else:
+			blue_players.append(peer_id)
+
+	# Sort each team by kills descending
+	red_players.sort_custom(func(a, b): return scores[a]["kills"] > scores[b]["kills"])
+	blue_players.sort_custom(func(a, b): return scores[a]["kills"] > scores[b]["kills"])
+
+	# Red team header
+	var red_score: int = _team_scores.get(TeamConstants.Team.RED, 0)
+	y_offset = _add_team_section(scores, red_players, "RED TEAM", red_score, Color(1.0, 0.4, 0.4), y_offset)
+
+	y_offset += 10  # Spacing between teams
+
+	# Blue team header
+	var blue_score: int = _team_scores.get(TeamConstants.Team.BLUE, 0)
+	y_offset = _add_team_section(scores, blue_players, "BLUE TEAM", blue_score, Color(0.4, 0.6, 1.0), y_offset)
+
+	# Resize panel to fit content
+	_scoreboard_panel.custom_minimum_size.y = maxf(300.0, y_offset + 20.0)
+	_scoreboard_panel.size.y = _scoreboard_panel.custom_minimum_size.y
+
+
+func _add_team_section(scores: Dictionary, player_ids: Array, team_name: String, team_score: int, color: Color, y_start: int) -> int:
+	var y_offset := y_start
+
+	# Team header
+	var header := Label.new()
+	header.text = "  %s  -  Score: %d" % [team_name, team_score]
+	header.position = Vector2(20, y_offset)
+	header.add_theme_font_size_override("font_size", 18)
+	header.add_theme_color_override("font_color", color)
+	_scoreboard_panel.add_child(header)
+	_scoreboard_labels.append(header)
+	y_offset += 28
+
+	# Column header
+	var col_header := Label.new()
+	col_header.text = "  Player          Kills    Deaths"
+	col_header.position = Vector2(20, y_offset)
+	col_header.add_theme_font_size_override("font_size", 14)
+	col_header.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	_scoreboard_panel.add_child(col_header)
+	_scoreboard_labels.append(col_header)
+	y_offset += 22
+
+	# Player entries
+	for peer_id in player_ids:
+		var entry: Dictionary = scores[peer_id]
+		var label := Label.new()
+		label.text = "  Player %-8s %4d     %4d" % [str(peer_id), entry.get("kills", 0), entry.get("deaths", 0)]
+		label.position = Vector2(20, y_offset)
+		label.add_theme_font_size_override("font_size", 16)
+		label.add_theme_color_override("font_color", color.lerp(Color.WHITE, 0.4))
+		_scoreboard_panel.add_child(label)
+		_scoreboard_labels.append(label)
+		y_offset += 25
+
+	return y_offset
 
 
 # --- UI Creation ---
@@ -265,6 +397,78 @@ func _create_kill_feed() -> void:
 	_kill_feed_container.custom_minimum_size = Vector2(600, 0)
 	_kill_feed_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_kill_feed_container)
+
+
+func _create_countdown_label() -> void:
+	_countdown_label = Label.new()
+	_countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_countdown_label.set_anchors_preset(Control.PRESET_CENTER)
+	_countdown_label.position = Vector2(-60, -120)
+	_countdown_label.custom_minimum_size = Vector2(120, 80)
+	_countdown_label.add_theme_font_size_override("font_size", 72)
+	_countdown_label.add_theme_color_override("font_color", Color.WHITE)
+	_countdown_label.add_theme_color_override("font_shadow_color", Color.BLACK)
+	_countdown_label.add_theme_constant_override("shadow_offset_x", 3)
+	_countdown_label.add_theme_constant_override("shadow_offset_y", 3)
+	_countdown_label.visible = false
+	add_child(_countdown_label)
+
+
+func _create_boost_ring() -> void:
+	_boost_ring = Control.new()
+	_boost_ring.custom_minimum_size = Vector2(60, 60)
+	_boost_ring.size = Vector2(60, 60)
+	# Bottom-right corner, offset inward
+	_boost_ring.position = Vector2(900, 640)
+	_boost_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_boost_ring.draw.connect(_draw_boost_ring)
+	add_child(_boost_ring)
+
+
+func _draw_boost_ring() -> void:
+	var center := Vector2(30, 30)
+	var outer_radius := 26.0
+	var inner_radius := 18.0
+	var bg_color := Color(0.3, 0.3, 0.3, 0.5)
+
+	# Background ring (full doughnut, dark)
+	_draw_arc_fill(_boost_ring, center, inner_radius, outer_radius, 0.0, TAU, bg_color)
+
+	# Filled portion (clockwise from top, based on fuel ratio)
+	if _boost_ratio > 0.0:
+		var fill_color: Color
+		if _boost_ratio > 0.5:
+			fill_color = Color(0.2, 0.8, 1.0, 0.9)  # Cyan-blue
+		elif _boost_ratio > 0.25:
+			fill_color = Color(1.0, 0.8, 0.2, 0.9)  # Yellow warning
+		else:
+			fill_color = Color(1.0, 0.3, 0.2, 0.9)  # Red low
+		var fill_angle := _boost_ratio * TAU
+		# Start from top (-PI/2), go clockwise
+		_draw_arc_fill(_boost_ring, center, inner_radius, outer_radius, -PI / 2.0, -PI / 2.0 + fill_angle, fill_color)
+
+	# "BOOST" label below the ring
+	_boost_ring.draw_string(
+		ThemeDB.fallback_font, Vector2(5, 72),
+		"BOOST", HORIZONTAL_ALIGNMENT_CENTER, 50,
+		10, Color(0.8, 0.8, 0.8, 0.7)
+	)
+
+
+func _draw_arc_fill(control: Control, center: Vector2, r_inner: float, r_outer: float, angle_from: float, angle_to: float, color: Color) -> void:
+	# Draw a filled arc (doughnut segment) using a polygon
+	var segments := 32
+	var points: PackedVector2Array = PackedVector2Array()
+	# Outer arc
+	for i in range(segments + 1):
+		var angle := angle_from + (angle_to - angle_from) * float(i) / float(segments)
+		points.append(center + Vector2(cos(angle), sin(angle)) * r_outer)
+	# Inner arc (reversed)
+	for i in range(segments, -1, -1):
+		var angle := angle_from + (angle_to - angle_from) * float(i) / float(segments)
+		points.append(center + Vector2(cos(angle), sin(angle)) * r_inner)
+	control.draw_polygon(points, PackedColorArray([color]))
 
 
 func _create_scoreboard() -> void:

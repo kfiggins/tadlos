@@ -59,12 +59,32 @@ var is_bot: bool = false
 var _bot_input: Dictionary = {}
 var _bot_wants_fire: bool = false
 
+# Team (0 = NONE in FFA, 1 = RED, 2 = BLUE)
+var team: int = 0
+
 # Anti-cheat: max distance from server position for fire origin validation
 const FIRE_ORIGIN_TOLERANCE := 60.0
+
+# Headshot detection: hit above this Y offset from player center counts as headshot
+const HEADSHOT_Y_THRESHOLD := -12.0  # Top quarter of 48px hitbox
+const HEADSHOT_MULTIPLIER := 1.5
+
+# Spawn immunity
+const IMMUNITY_DURATION := 2.0
+var _immunity_timer: float = 0.0
+var _is_immune: bool = false
+
+# Visuals
+var _gun_node: Node2D = null
+var _jetpacking: bool = false
+var _need_jet_redraw: bool = false
+var _walk_anim: WalkAnimation = WalkAnimation.new()
+var _display_grounded: bool = true
 
 
 func _ready() -> void:
 	_create_placeholder_sprite()
+	_create_gun_sprite()
 
 	health = Health.new()
 	_weapon = WeaponRifle.new()
@@ -72,8 +92,10 @@ func _ready() -> void:
 	if multiplayer.is_server():
 		health.died.connect(_on_player_died)
 		health.health_changed.connect(_on_health_changed)
+		_immunity_timer = IMMUNITY_DURATION
+		_is_immune = true
 
-	if is_multiplayer_authority():
+	if is_multiplayer_authority() and not is_bot:
 		var camera := Camera2D.new()
 		camera.name = "Camera2D"
 		add_child(camera)
@@ -82,8 +104,8 @@ func _ready() -> void:
 		_hud = _hud_scene.instantiate()
 		add_child(_hud)
 
-	# Initialize prediction for local player on client
-	if not multiplayer.is_server() and is_multiplayer_authority():
+	# Initialize prediction for local player on client (not bots)
+	if not multiplayer.is_server() and is_multiplayer_authority() and not is_bot:
 		_prediction = ClientPrediction.new()
 
 	# Initialize interpolation for remote players on client
@@ -99,6 +121,25 @@ func _physics_process(delta: float) -> void:
 	else:
 		_client_remote_process(delta)
 
+	# Walk animation (all roles)
+	_update_walk_animation(delta)
+
+	# Immunity blink effect (all roles)
+	if _is_immune and not _is_dead:
+		var vis := fmod(Time.get_ticks_msec() / 100.0, 2.0) < 1.0
+		$Sprite2D.visible = vis
+		if _gun_node:
+			_gun_node.visible = vis
+	elif not _is_dead:
+		$Sprite2D.visible = true
+		if _gun_node:
+			_gun_node.visible = true
+
+	# Jetpack VFX redraw
+	if _jetpacking or _need_jet_redraw:
+		queue_redraw()
+		_need_jet_redraw = _jetpacking
+
 
 func set_bot_input(input: Dictionary) -> void:
 	_bot_input = input
@@ -108,11 +149,15 @@ func _server_process(delta: float) -> void:
 	# Scoreboard toggle (host player, works even when dead)
 	if is_multiplayer_authority() and not is_bot:
 		if Input.is_action_just_pressed("scoreboard") and _hud != null:
-			var game_mode := get_node_or_null("../../GameModeDeathmatch")
+			var game_mode := get_node_or_null("../../GameMode")
 			if game_mode:
+				_pass_team_data_to_hud(game_mode)
 				_hud.toggle_scoreboard(game_mode.scores)
 		if Input.is_action_just_released("scoreboard") and _hud != null:
 			_hud.hide_scoreboard()
+		# Team switch key (host in TDM)
+		if Input.is_action_just_pressed("change_team"):
+			_request_team_switch()
 
 	# Dead players: only broadcast state, skip sim and input
 	if _is_dead:
@@ -123,6 +168,13 @@ func _server_process(delta: float) -> void:
 			_server_tick += 1
 			_broadcast_state()
 		return
+
+	# Tick down immunity
+	if _immunity_timer > 0.0:
+		_immunity_timer -= delta
+		if _immunity_timer <= 0.0:
+			_immunity_timer = 0.0
+			_is_immune = false
 
 	_weapon.process_cooldown(delta)
 
@@ -155,14 +207,28 @@ func _server_process(delta: float) -> void:
 			_jump_buffered = false
 			_dive_buffered = false
 
+	# Update display state for VFX
+	_jetpacking = _last_input.get("jetpack", false) and fuel > 0.0
+	_display_grounded = is_on_floor()
+
+	# Manual reload (host player)
+	if is_multiplayer_authority() and not is_bot:
+		if Input.is_action_just_pressed("reload"):
+			_weapon.start_reload()
+
 	# Fire handling (host player or bot)
 	var should_fire := false
 	if is_bot:
 		should_fire = _bot_wants_fire
 		_bot_wants_fire = false
 	elif is_multiplayer_authority():
-		should_fire = Input.is_action_pressed("fire")
-	if should_fire and health.is_alive() and _weapon.can_fire():
+		if _weapon.config.is_semi_auto():
+			should_fire = Input.is_action_just_pressed("fire")
+		else:
+			should_fire = Input.is_action_pressed("fire")
+	if should_fire and health.is_alive() and _weapon.can_fire() and _is_game_started():
+		_immunity_timer = 0.0
+		_is_immune = false
 		_weapon.fire()
 		var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
 		_spawn_bullet(origin, WeaponRifle.get_aim_direction(aim_angle))
@@ -177,6 +243,8 @@ func _server_process(delta: float) -> void:
 		})
 		if _hud != null:
 			_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
+			_hud.update_fuel(fuel, MovementTuning.JETPACK_MAX_FUEL)
+			_update_countdown_hud()
 
 
 func _simulate_tick(tick_delta: float) -> void:
@@ -195,11 +263,15 @@ func _simulate_tick(tick_delta: float) -> void:
 func _client_local_process(delta: float) -> void:
 	# Scoreboard toggle (works even when dead)
 	if Input.is_action_just_pressed("scoreboard") and _hud != null:
-		var game_mode := get_node_or_null("../../GameModeDeathmatch")
+		var game_mode := get_node_or_null("../../GameMode")
 		if game_mode:
+			_pass_team_data_to_hud(game_mode)
 			_hud.toggle_scoreboard(game_mode.scores)
 	if Input.is_action_just_released("scoreboard") and _hud != null:
 		_hud.hide_scoreboard()
+	# Team switch key (client in TDM)
+	if Input.is_action_just_pressed("change_team"):
+		_request_team_switch()
 
 	# Dead: skip input/movement, just show death screen
 	if _is_dead:
@@ -255,9 +327,23 @@ func _client_local_process(delta: float) -> void:
 		_send_input.rpc_id(1, payload)
 		Debug.record_rpc_sent()
 
+	# Manual reload (client player)
+	if Input.is_action_just_pressed("reload"):
+		_weapon.start_reload()
+		_reload_request.rpc_id(1)
+
+	# Update display state for VFX
+	_jetpacking = Input.is_action_pressed("jetpack") and fuel > 0.0
+	_display_grounded = is_on_floor()
+
 	# Client fire handling (predicted — server validates)
-	if _display_hp > 0:
-		if Input.is_action_pressed("fire") and _weapon.can_fire():
+	if _display_hp > 0 and _is_game_started():
+		var wants_fire := false
+		if _weapon.config.is_semi_auto():
+			wants_fire = Input.is_action_just_pressed("fire")
+		else:
+			wants_fire = Input.is_action_pressed("fire")
+		if wants_fire and _weapon.can_fire():
 			_weapon.fire()
 			var origin := global_position + WeaponRifle.get_muzzle_offset(aim_angle)
 			var direction := WeaponRifle.get_aim_direction(aim_angle)
@@ -280,6 +366,8 @@ func _client_local_process(delta: float) -> void:
 	})
 	if _hud != null:
 		_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
+		_hud.update_fuel(fuel, MovementTuning.JETPACK_MAX_FUEL)
+		_update_countdown_hud()
 
 
 func _client_remote_process(delta: float) -> void:
@@ -295,6 +383,7 @@ func _client_remote_process(delta: float) -> void:
 	velocity = interp_state.velocity
 	fuel = interp_state.fuel
 	aim_angle = interp_state.aim_angle
+	_display_grounded = interp_state.get("grounded", false)
 	_update_facing(aim_angle)
 
 
@@ -325,18 +414,38 @@ func _fire_request(data: Dictionary) -> void:
 		Debug.log("net", "Fire rejected: cooldown not elapsed for peer %d" % sender)
 		return
 
+	if not _is_game_started():
+		return
+
 	# Validate fire origin is near server-known position
 	var origin := Vector2(data.get("origin_x", 0.0), data.get("origin_y", 0.0))
 	if origin.distance_to(global_position) > FIRE_ORIGIN_TOLERANCE:
 		Debug.log("net", "Fire rejected: origin too far from server pos for peer %d" % sender)
 		return
 
+	_immunity_timer = 0.0
+	_is_immune = false
 	_weapon.fire()
 	var direction := Vector2(data.get("dir_x", 0.0), data.get("dir_y", 0.0))
 	if direction.length_squared() < 0.01:
 		Debug.log("net", "Fire rejected: invalid direction for peer %d" % sender)
 		return
 	_spawn_bullet(origin, direction)
+
+
+# --- Reload Request RPC ---
+
+## Client → Server: request to manually reload weapon.
+@rpc("any_peer", "reliable")
+func _reload_request() -> void:
+	if not multiplayer.is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if sender != get_multiplayer_authority():
+		return
+	if not health.is_alive():
+		return
+	_weapon.start_reload()
 
 
 # --- Bullet Spawning (server only) ---
@@ -369,6 +478,7 @@ func _spawn_bullet(origin: Vector2, direction: Vector2) -> void:
 	bullet.owner_peer_id = peer_id
 	bullet.damage = _weapon.config.damage
 	bullet.gravity = _weapon.config.bullet_gravity
+	bullet.max_range = _weapon.config.max_range
 	bullet.hit_player.connect(_on_bullet_hit_player)
 	bullet.hit_world.connect(_on_bullet_hit_world)
 	bullets_node.add_child(bullet)
@@ -408,9 +518,11 @@ func _spawn_cosmetic_bullet(origin: Vector2, direction: Vector2) -> void:
 		return
 	var bullet := _bullet_scene.instantiate()
 	bullet.position = origin
+	bullet.spawn_position = origin
 	bullet.speed_vec = direction.normalized() * _weapon.config.bullet_speed
 	bullet.owner_peer_id = int(str(name))
 	bullet.gravity = _weapon.config.bullet_gravity
+	bullet.max_range = _weapon.config.max_range
 	bullets_node.add_child(bullet)
 	bullet.add_collision_exception_with(self)
 
@@ -418,17 +530,22 @@ func _spawn_cosmetic_bullet(origin: Vector2, direction: Vector2) -> void:
 func _on_bullet_hit_player(victim_node: CharacterBody2D, hit_position: Vector2) -> void:
 	if not multiplayer.is_server():
 		return
-	# Apply damage to victim
+	# Apply damage to victim (with headshot check)
 	if victim_node.has_method("apply_damage"):
 		var shooter_id := int(str(name))
-		victim_node.apply_damage(_weapon.config.damage, shooter_id)
+		var is_headshot := hit_position.y < victim_node.global_position.y + HEADSHOT_Y_THRESHOLD
+		var damage := _weapon.config.damage
+		if is_headshot:
+			damage = roundi(damage * HEADSHOT_MULTIPLIER)
+		victim_node.apply_damage(damage, shooter_id)
 		# Broadcast hit event
 		_on_hit_event.rpc({
 			"victim_id": int(str(victim_node.name)),
 			"shooter_id": shooter_id,
 			"position_x": hit_position.x,
 			"position_y": hit_position.y,
-			"damage": _weapon.config.damage,
+			"damage": damage,
+			"headshot": is_headshot,
 		})
 
 
@@ -443,6 +560,13 @@ func apply_damage(amount: int, source_peer_id: int) -> void:
 		return
 	if amount <= 0:
 		return
+	if _is_immune:
+		return
+	# Friendly fire check (TDM)
+	var game_mode := get_node_or_null("../../GameMode")
+	if game_mode and game_mode.has_method("is_friendly"):
+		if game_mode.is_friendly(source_peer_id, int(str(name))):
+			return
 	health.take_damage(amount, source_peer_id)
 
 
@@ -457,7 +581,7 @@ func _on_health_changed(new_hp: int, max_hp: int) -> void:
 
 func _on_player_died(killer_peer_id: int) -> void:
 	Debug.log("net", "Player %s killed by peer %d" % [name, killer_peer_id])
-	var game_mode := get_node_or_null("../../GameModeDeathmatch")
+	var game_mode := get_node_or_null("../../GameMode")
 	if game_mode:
 		game_mode.on_player_killed(killer_peer_id, int(str(name)))
 
@@ -469,15 +593,19 @@ func set_dead(dead: bool, killer_id: int = 0) -> void:
 	if dead:
 		$CollisionShape2D.set_deferred("disabled", true)
 		$Sprite2D.visible = false
+		if _gun_node:
+			_gun_node.visible = false
 		velocity = Vector2.ZERO
 		# Notify all clients of death
 		_receive_death.rpc(killer_id)
 		# Update host HUD if this is the host's player
 		if is_multiplayer_authority() and _hud != null:
-			_hud.show_death_screen(killer_id, GameModeDeathmatch.RESPAWN_DELAY)
+			_hud.show_death_screen(killer_id, TeamConstants.RESPAWN_DELAY)
 	else:
 		$CollisionShape2D.set_deferred("disabled", false)
 		$Sprite2D.visible = true
+		if _gun_node:
+			_gun_node.visible = true
 
 
 func is_player_dead() -> bool:
@@ -493,12 +621,18 @@ func respawn(spawn_pos: Vector2) -> void:
 	fuel = MovementTuning.JETPACK_MAX_FUEL
 	health.reset()
 	_weapon.reset()
+	_immunity_timer = IMMUNITY_DURATION
+	_is_immune = true
 	$CollisionShape2D.set_deferred("disabled", false)
 	$Sprite2D.visible = true
+	$Sprite2D.texture = _walk_anim.get_idle_frame()
+	if _gun_node:
+		_gun_node.visible = true
 	# Host HUD update
 	if is_multiplayer_authority() and _hud != null:
 		_hud.hide_death_screen()
 		_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
+		_hud.update_fuel(fuel, MovementTuning.JETPACK_MAX_FUEL)
 
 
 ## Client-side: handle respawn from server broadcast.
@@ -506,9 +640,13 @@ func on_client_respawn(spawn_pos: Vector2) -> void:
 	_is_dead = false
 	_killer_peer_id = 0
 	_display_hp = 100
+	_is_immune = true
 	position = spawn_pos
 	velocity = Vector2.ZERO
 	$Sprite2D.visible = true
+	$Sprite2D.texture = _walk_anim.get_idle_frame()
+	if _gun_node:
+		_gun_node.visible = true
 	if is_multiplayer_authority():
 		fuel = MovementTuning.JETPACK_MAX_FUEL
 		_weapon.reset()
@@ -516,6 +654,7 @@ func on_client_respawn(spawn_pos: Vector2) -> void:
 			_hud.hide_death_screen()
 			_hud.update_hp(100, 100)
 			_hud.update_ammo(_weapon.current_ammo, _weapon.config.max_ammo, _weapon.reloading)
+			_hud.update_fuel(fuel, MovementTuning.JETPACK_MAX_FUEL)
 
 
 # --- Client RPCs ---
@@ -554,8 +693,10 @@ func _receive_death(killer_id: int) -> void:
 	_killer_peer_id = killer_id
 	_display_hp = 0
 	$Sprite2D.visible = false
+	if _gun_node:
+		_gun_node.visible = false
 	if is_multiplayer_authority() and _hud != null:
-		_hud.show_death_screen(killer_id, GameModeDeathmatch.RESPAWN_DELAY)
+		_hud.show_death_screen(killer_id, TeamConstants.RESPAWN_DELAY)
 
 
 ## Server → Clients: health update.
@@ -619,6 +760,8 @@ func _broadcast_state() -> void:
 		"last_input_seq": _last_processed_seq,
 		"hp": health.current_hp,
 		"is_dead": _is_dead,
+		"is_immune": _is_immune,
+		"jetpacking": _jetpacking,
 	}
 
 	_ticks_since_last_broadcast += 1
@@ -638,6 +781,8 @@ func _snapshot_unchanged(snapshot: Dictionary) -> bool:
 	if snapshot.get("is_dead") != _last_broadcast_snapshot.get("is_dead"):
 		return false
 	if snapshot.get("hp") != _last_broadcast_snapshot.get("hp"):
+		return false
+	if snapshot.get("is_immune") != _last_broadcast_snapshot.get("is_immune"):
 		return false
 	if snapshot.get("grounded") != _last_broadcast_snapshot.get("grounded"):
 		return false
@@ -677,6 +822,7 @@ func _handle_server_reconciliation(state: Dictionary) -> void:
 		return
 
 	_display_hp = state.get("hp", _display_hp)
+	_is_immune = state.get("is_immune", false)
 
 	var server_pos := Vector2(
 		state.get("position_x", position.x),
@@ -733,10 +879,14 @@ func _handle_remote_snapshot(state: Dictionary) -> void:
 		return
 
 	_display_hp = state.get("hp", _display_hp)
+	_is_immune = state.get("is_immune", false)
+	_jetpacking = state.get("jetpacking", false)
 	var dead: bool = state.get("is_dead", false)
 	if dead != _is_dead:
 		_is_dead = dead
 		$Sprite2D.visible = not dead
+		if _gun_node:
+			_gun_node.visible = not dead
 
 	var interp_state := {
 		"position": Vector2(state.get("position_x", 0.0), state.get("position_y", 0.0)),
@@ -748,27 +898,138 @@ func _handle_remote_snapshot(state: Dictionary) -> void:
 	_interpolation.add_snapshot(interp_state, _remote_time)
 
 
+func _update_walk_animation(delta: float) -> void:
+	if _is_dead:
+		return
+	var tex := _walk_anim.update(velocity.x, _display_grounded, delta)
+	if tex != null:
+		$Sprite2D.texture = tex
+
+
 func _update_facing(angle: float) -> void:
 	var should_face_right := cos(angle) < 0.0
 	if should_face_right != _facing_right:
 		_facing_right = should_face_right
 		$Sprite2D.flip_h = not _facing_right
+	# Rotate gun to aim direction
+	if _gun_node != null:
+		_gun_node.rotation = angle
+		# Flip Y when pointing left to prevent upside-down gun
+		_gun_node.scale.y = -1.0 if cos(angle) < 0.0 else 1.0
+		_gun_node.queue_redraw()
 
 
-func _create_placeholder_sprite() -> void:
-	var img := Image.create(24, 48, false, Image.FORMAT_RGBA8)
-	# Head (skin tone)
-	for y in range(0, 12):
-		for x in range(6, 18):
-			img.set_pixel(x, y, Color(0.9, 0.75, 0.6))
-	# Body (blue)
-	for y in range(12, 32):
-		for x in range(4, 20):
-			img.set_pixel(x, y, Color(0.2, 0.4, 0.8))
-	# Legs (dark blue)
-	for y in range(32, 48):
-		for x in range(5, 11):
-			img.set_pixel(x, y, Color(0.15, 0.25, 0.5))
-		for x in range(13, 19):
-			img.set_pixel(x, y, Color(0.15, 0.25, 0.5))
-	$Sprite2D.texture = ImageTexture.create_from_image(img)
+## Apply team color to sprite by regenerating body/leg pixels.
+func set_team_visual(team_value: int) -> void:
+	team = team_value
+	_create_placeholder_sprite(
+		TeamConstants.get_team_body_color(team_value),
+		TeamConstants.get_team_leg_color(team_value),
+	)
+
+
+## Apply FFA color by index.
+func set_ffa_color(color_index: int) -> void:
+	_create_placeholder_sprite(
+		TeamConstants.get_ffa_body_color(color_index),
+		TeamConstants.get_ffa_leg_color(color_index),
+	)
+
+
+func _create_placeholder_sprite(
+	body_color: Color = TeamConstants.DEFAULT_BODY_COLOR,
+	leg_color: Color = TeamConstants.DEFAULT_LEG_COLOR,
+) -> void:
+	var frames := WalkAnimation.generate_frames(body_color, leg_color)
+	_walk_anim.set_frames(frames)
+	$Sprite2D.texture = _walk_anim.get_idle_frame()
+	$Sprite2D.modulate = Color.WHITE
+
+
+func _create_gun_sprite() -> void:
+	_gun_node = Node2D.new()
+	_gun_node.name = "GunSprite"
+	_gun_node.position = Vector2(0, -4)  # Shoulder height
+	add_child(_gun_node)
+	_gun_node.draw.connect(_draw_gun)
+
+
+func _draw_gun() -> void:
+	if _is_dead:
+		return
+	# Gun body (grip/receiver)
+	_gun_node.draw_rect(Rect2(Vector2(2, -2), Vector2(8, 4)), Color(0.3, 0.3, 0.3))
+	# Barrel
+	_gun_node.draw_rect(Rect2(Vector2(10, -1), Vector2(12, 2)), Color(0.5, 0.5, 0.5))
+	# Aim line: dashed, from barrel end outward
+	var barrel_end := 24.0
+	var aim_length := 80.0
+	var dash := 6.0
+	var gap := 4.0
+	var line_color := Color(1.0, 1.0, 1.0, 0.3)
+	var x := barrel_end
+	while x < barrel_end + aim_length:
+		var end_x := minf(x + dash, barrel_end + aim_length)
+		_gun_node.draw_line(Vector2(x, 0), Vector2(end_x, 0), line_color, 1.0)
+		x += dash + gap
+
+
+func _draw() -> void:
+	if not _jetpacking or _is_dead:
+		return
+	# Flame VFX below feet (y+24 from center)
+	var flame_colors := [
+		Color(1.0, 0.6, 0.0, 0.8),
+		Color(1.0, 0.4, 0.0, 0.6),
+		Color(1.0, 0.8, 0.2, 0.7),
+	]
+	for i in 3:
+		var x_offset := randf_range(-5.0, 5.0)
+		var flame_length := randf_range(8.0, 18.0)
+		var flame_width := randf_range(2.0, 4.0)
+		draw_rect(
+			Rect2(Vector2(x_offset - flame_width / 2.0, 24.0), Vector2(flame_width, flame_length)),
+			flame_colors[i]
+		)
+
+
+func _is_game_started() -> bool:
+	var game_mode := get_node_or_null("../../GameMode")
+	return game_mode == null or game_mode.game_started
+
+
+func _update_countdown_hud() -> void:
+	if _hud == null:
+		return
+	var game_mode := get_node_or_null("../../GameMode")
+	if game_mode == null:
+		return
+	if not game_mode.game_started:
+		_hud.show_countdown(ceili(game_mode._countdown_timer))
+	else:
+		_hud.hide_countdown()
+
+
+func _pass_team_data_to_hud(game_mode: Node) -> void:
+	if _hud == null:
+		return
+	if game_mode is GameModeTeamDeathmatch:
+		_hud.set_team_data(game_mode.team_assignments, game_mode.team_scores)
+
+
+func _request_team_switch() -> void:
+	var game_mode := get_node_or_null("../../GameMode")
+	if game_mode == null or not game_mode is GameModeTeamDeathmatch:
+		return
+	# Toggle to opposite team
+	var new_team: int
+	if team == TeamConstants.Team.RED:
+		new_team = TeamConstants.Team.BLUE
+	else:
+		new_team = TeamConstants.Team.RED
+	if multiplayer.is_server():
+		# Host can change directly
+		game_mode.change_team(int(str(name)), new_team)
+	else:
+		# Client sends RPC request
+		game_mode.request_team_change.rpc_id(1, new_team)

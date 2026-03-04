@@ -7,8 +7,9 @@ extends CharacterBody2D
 var speed_vec: Vector2 = Vector2.ZERO
 var owner_peer_id: int = 0
 var damage: int = 25
-var gravity: float = 50.0
+var gravity: float = 200.0
 var max_lifetime: float = 3.0
+var max_range: float = 1200.0  # Per-weapon range; set by spawner from WeaponConfig
 var spawn_position: Vector2 = Vector2.ZERO
 
 var _time_alive: float = 0.0
@@ -59,8 +60,8 @@ func _simulate_tick(tick_delta: float) -> void:
 	var collision := move_and_collide(motion)
 	queue_redraw()
 
-	# Distance cap
-	if position.distance_to(spawn_position) > NetConstants.BULLET_MAX_DISTANCE:
+	# Distance cap (per-weapon range)
+	if position.distance_to(spawn_position) > max_range:
 		_dead = true
 		queue_free()
 		return

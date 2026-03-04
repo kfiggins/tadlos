@@ -33,6 +33,11 @@ func _test_soak_run() -> void:
 	add_child(_game_world)
 	await _wait_frames(5)
 
+	# Skip countdown for test
+	var gm := _game_world.get_node_or_null("GameMode")
+	if gm:
+		gm.skip_countdown()
+
 	# Remove the auto-spawned host player
 	var players_node := _game_world.get_node("Players")
 	for child in players_node.get_children():
@@ -54,7 +59,7 @@ func _test_soak_run() -> void:
 		players_node.add_child(player)
 		player.is_bot = true
 
-		var game_mode := _game_world.get_node_or_null("GameModeDeathmatch")
+		var game_mode := _game_world.get_node_or_null("GameMode")
 		if game_mode:
 			game_mode.register_player(peer_id)
 

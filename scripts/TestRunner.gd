@@ -25,6 +25,10 @@ var _test_scenes: Array[String] = [
 	"res://tests/test_spawn_safety.tscn",
 	"res://tests/test_bullet_caps.tscn",
 	"res://tests/test_max_players_8.tscn",
+	"res://tests/test_bot_ai.tscn",
+	"res://tests/test_bot_spawning.tscn",
+	"res://tests/test_team_deathmatch.tscn",
+	"res://tests/test_walk_animation.tscn",
 	"res://tests/test_soak_60s.tscn",
 ]
 

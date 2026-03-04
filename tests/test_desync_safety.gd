@@ -23,10 +23,10 @@ func _test_weapon_cooldown_enforcement() -> void:
 	# Immediately try again — should be blocked
 	Assert.assert_false(weapon.can_fire(), "Cooldown blocks immediate refire")
 	# Partially advance cooldown (not enough)
-	weapon.process_cooldown(0.05)
+	weapon.process_cooldown(0.10)
 	Assert.assert_false(weapon.can_fire(), "Partial cooldown still blocks fire")
 	# Finish cooldown
-	weapon.process_cooldown(0.11)
+	weapon.process_cooldown(0.26)
 	Assert.assert_true(weapon.can_fire(), "Full cooldown allows fire")
 
 
@@ -104,10 +104,13 @@ func _test_weapon_config_resource() -> void:
 	var config := WeaponConfig.new()
 	# Default values from the resource
 	Assert.assert_eq(config.damage, 25, "Default damage is 25")
-	Assert.assert_eq(config.fire_rate, 0.15, "Default fire_rate is 0.15")
-	Assert.assert_eq(config.bullet_speed, 1200.0, "Default bullet_speed is 1200")
-	Assert.assert_eq(config.bullet_gravity, 50.0, "Default bullet_gravity is 50")
-	Assert.assert_eq(config.max_ammo, 30, "Default max_ammo is 30")
+	Assert.assert_eq(config.fire_rate, 0.35, "Default fire_rate is 0.35")
+	Assert.assert_eq(config.bullet_speed, 900.0, "Default bullet_speed is 900")
+	Assert.assert_eq(config.bullet_gravity, 200.0, "Default bullet_gravity is 200")
+	Assert.assert_eq(config.max_ammo, 8, "Default max_ammo is 8")
+	Assert.assert_eq(config.fire_mode, WeaponConfig.FireMode.SEMI_AUTO, "Default fire_mode is SEMI_AUTO")
+	Assert.assert_eq(config.max_range, 1200.0, "Default max_range is 1200")
+	Assert.assert_true(config.is_semi_auto(), "Default config is_semi_auto()")
 
 
 func _test_health_clamps_at_zero() -> void:

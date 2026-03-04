@@ -8,6 +8,7 @@ var fuel: float = MovementTuning.JETPACK_MAX_FUEL
 var aim_angle: float = 0.0
 var _facing_right: bool = true
 var _tick_accumulator: float = 0.0
+var _walk_anim: WalkAnimation = WalkAnimation.new()
 
 # Buffer edge-triggered inputs so they survive between tick boundaries.
 # is_action_just_pressed fires for one frame, but the 30Hz tick loop may
@@ -49,6 +50,11 @@ func _physics_process(delta: float) -> void:
 		# Clear buffers after the first tick consumes them
 		_jump_buffered = false
 		_dive_buffered = false
+
+	# Walk animation
+	var walk_tex := _walk_anim.update(velocity.x, is_on_floor(), delta)
+	if walk_tex != null:
+		$Sprite2D.texture = walk_tex
 
 	# Push data to debug overlay
 	Debug.set_overlay_data({
@@ -126,8 +132,8 @@ static func calculate_velocity(state: Dictionary, input: Dictionary, delta: floa
 		vel.y += MovementTuning.JETPACK_FORCE * delta
 		cur_fuel -= MovementTuning.JETPACK_BURN_RATE * delta
 		cur_fuel = maxf(cur_fuel, 0.0)
-	elif grounded and not wants_jetpack:
-		# Recharge fuel on ground when not using jetpack
+	elif not wants_jetpack:
+		# Recharge fuel whenever not using jetpack
 		cur_fuel += MovementTuning.JETPACK_RECHARGE_RATE * delta
 		cur_fuel = minf(cur_fuel, MovementTuning.JETPACK_MAX_FUEL)
 
@@ -158,19 +164,6 @@ func _update_facing(angle: float) -> void:
 
 
 func _create_placeholder_sprite() -> void:
-	var img := Image.create(24, 48, false, Image.FORMAT_RGBA8)
-	# Head (skin tone)
-	for y in range(0, 12):
-		for x in range(6, 18):
-			img.set_pixel(x, y, Color(0.9, 0.75, 0.6))
-	# Body (blue)
-	for y in range(12, 32):
-		for x in range(4, 20):
-			img.set_pixel(x, y, Color(0.2, 0.4, 0.8))
-	# Legs (dark blue)
-	for y in range(32, 48):
-		for x in range(5, 11):
-			img.set_pixel(x, y, Color(0.15, 0.25, 0.5))
-		for x in range(13, 19):
-			img.set_pixel(x, y, Color(0.15, 0.25, 0.5))
-	$Sprite2D.texture = ImageTexture.create_from_image(img)
+	var frames := WalkAnimation.generate_frames(Color(0.2, 0.4, 0.8), Color(0.15, 0.25, 0.5))
+	_walk_anim.set_frames(frames)
+	$Sprite2D.texture = _walk_anim.get_idle_frame()

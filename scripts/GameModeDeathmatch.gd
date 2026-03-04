@@ -15,6 +15,11 @@ var _respawn_timers: Dictionary = {}  # {peer_id: float}
 var _players_node: Node = null
 
 const RESPAWN_DELAY := 3.0
+const COUNTDOWN_DURATION := 5.0
+
+var game_started: bool = false
+var _countdown_timer: float = COUNTDOWN_DURATION
+var _last_broadcast_second: int = -1
 
 
 func _ready() -> void:
@@ -25,6 +30,21 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
+
+	# Pre-game countdown
+	if not game_started:
+		_countdown_timer -= delta
+		if _countdown_timer <= 0.0:
+			game_started = true
+			_countdown_timer = 0.0
+			_broadcast_game_started.rpc()
+		else:
+			var current_second := ceili(_countdown_timer)
+			if current_second != _last_broadcast_second:
+				_last_broadcast_second = current_second
+				_broadcast_countdown.rpc(current_second)
+		return
+
 	_process_respawn_timers(delta)
 
 
@@ -36,7 +56,7 @@ func _collect_spawn_points() -> void:
 			if child is Marker2D:
 				points.append(child.position)
 	if points.is_empty():
-		points.append(Vector2(400, 280))
+		points.append(Vector2(3000, 960))
 	spawn_points = SpawnPoints.new(points)
 
 
@@ -87,7 +107,7 @@ func get_spawn_position(peer_id: int = 0) -> Vector2:
 				if not child.has_method("is_player_dead") or not child.is_player_dead():
 					other_positions.append(child.position)
 	if spawn_points == null:
-		return Vector2(400, 280)
+		return Vector2(3000, 960)
 	return spawn_points.get_spawn_point(other_positions)
 
 
@@ -95,6 +115,22 @@ func get_spawn_position(peer_id: int = 0) -> Vector2:
 func send_scores_to_peer(peer_id: int) -> void:
 	if multiplayer.is_server():
 		_broadcast_scores.rpc_id(peer_id, scores)
+
+
+## Send countdown/game state to a newly connected peer.
+func send_game_state_to_peer(peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if game_started:
+		_broadcast_game_started.rpc_id(peer_id)
+	else:
+		_broadcast_countdown.rpc_id(peer_id, ceili(_countdown_timer))
+
+
+## Skip countdown immediately (for tests).
+func skip_countdown() -> void:
+	game_started = true
+	_countdown_timer = 0.0
 
 
 func _process_respawn_timers(delta: float) -> void:
@@ -154,3 +190,19 @@ func _broadcast_respawn(peer_id: int, pos_x: float, pos_y: float) -> void:
 	var player := _get_player_node(peer_id)
 	if player and player.has_method("on_client_respawn"):
 		player.on_client_respawn(Vector2(pos_x, pos_y))
+
+
+@rpc("authority", "reliable")
+func _broadcast_countdown(seconds_remaining: int) -> void:
+	if multiplayer.is_server():
+		return
+	_countdown_timer = float(seconds_remaining)
+	game_started = false
+
+
+@rpc("authority", "reliable")
+func _broadcast_game_started() -> void:
+	if multiplayer.is_server():
+		return
+	game_started = true
+	_countdown_timer = 0.0

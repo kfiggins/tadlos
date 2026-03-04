@@ -57,7 +57,7 @@ func _ready() -> void:
 		player.is_bot = true
 
 		# Register in game mode
-		var game_mode := _game_world.get_node("GameModeDeathmatch")
+		var game_mode := _game_world.get_node("GameMode")
 		if game_mode:
 			game_mode.register_player(peer_id)
 
